@@ -48,3 +48,5 @@ Nachos/nachos-3.4/code/bin/out
 *.exe
 *.out
 *.app
+
+*.DS_Store
