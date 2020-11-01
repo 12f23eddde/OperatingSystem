@@ -124,18 +124,6 @@ void Fork(void (*func)());
  */
 void Yield();		
 
-
-/**********************************************************************/
-/*********************** Lab6: Syscall Handler ************************/
-/**********************************************************************/
-
-void IncrementPCRegs(void); // Advance the program counter
-char* getFileNameFromAddress(int address); // helper function for Create, Open
-
-void AddressSpaceControlHandler(int type); // Exit, Exec, Join
-void FileSystemHandler(int type); // Create, Open, Write, Read, Close
-void UserLevelThreadsHandler(int type); // Fork, Yield
-
 #endif /* IN_ASM */
 
 #endif /* SYSCALL_H */

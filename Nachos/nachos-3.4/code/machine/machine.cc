@@ -56,10 +56,6 @@ Machine::Machine(bool debug)
 {
     int i;
 
-#if USE_BITMAP && INVERTED_PAGETABLE
-    ASSERT_MSG(FALSE, "we must have either a Bitmap or a Inverted Page Table, but not both!");
-#endif
-
     for (i = 0; i < NumTotalRegs; i++)
         registers[i] = 0;
     mainMemory = new char[MemorySize];
@@ -73,27 +69,6 @@ Machine::Machine(bool debug)
 #else	// use linear page table
     tlb = NULL;
     pageTable = NULL;
-#endif
-
-#ifndef INVERTED_PAGETABLE
-    // Lab4: Global data structure for memory management
-#if USE_BITMAP
-    bitmap = 0; // Initialize
-#elif USE_LINKED_LIST
-    // TODO
-#endif
-#else // Using Inverted Page Table
-    pageTable = new TranslationEntry[NumPhysPages];
-    // Initialize Inverted Page Table
-    for (i = 0; i < NumPhysPages; i++) {
-        pageTable[i].physicalPage = i;
-        pageTable[i].virtualPage = i;
-        pageTable[i].valid = FALSE;
-        pageTable[i].dirty = FALSE;
-        pageTable[i].readOnly = FALSE;
-        pageTable[i].threadId = -1;
-    }
-    pageTableSize = MemorySize;
 #endif
 
     singleStep = debug;
@@ -125,7 +100,7 @@ Machine::~Machine()
 void
 Machine::RaiseException(ExceptionType which, int badVAddr)
 {
-    DEBUG('m', COLORED(WARNING, "Exception: %s\n"), exceptionNames[which]);
+    DEBUG('m', "Exception: %s\n", exceptionNames[which]);
     
 //  ASSERT(interrupt->getStatus() == UserMode);
     registers[BadVAddrReg] = badVAddr;
@@ -220,28 +195,6 @@ Machine::DumpState()
 }
 
 //----------------------------------------------------------------------
-// Machine::DumpMemory
-// 	Print the machine memory state (and Bitmap if any).
-//
-//  (still have some bug)
-//----------------------------------------------------------------------
-
-void
-Machine::DumpMemory()
-{
-#if USER_PROGRAM && USE_BITMAP
-    printf("Bitmap: %08X\n", bitmap); 
-#endif
-    printf("Machine memory:\n");
-    printf("-----------------------------------------------------------------------------------------------------------------------------------------");
-    for (int i = 0; i < MemorySize; i++) {
-        if (i % PageSize == 0) printf("\n%2d|", i/PageSize);
-        printf("%X", mainMemory[i]);
-	}
-    printf("\n-----------------------------------------------------------------------------------------------------------------------------------------\n");
-}
-
-//----------------------------------------------------------------------
 // Machine::ReadRegister/WriteRegister
 //   	Fetch or write the contents of a user program register.
 //----------------------------------------------------------------------
@@ -259,75 +212,3 @@ void Machine::WriteRegister(int num, int value)
 	registers[num] = value;
     }
 
-/**********************************************************************/
-/*************** Lab4: Memory Management Global Object ****************/
-/**********************************************************************/
-
-#ifdef USER_PROGRAM
-
-//----------------------------------------------------------------------
-// Machine::allocateFrame
-//    Bitmap
-//   	Find a free physical page frame to allocate memory. (and set the bit)
-//      If not found, return -1.
-//    Inverted Page Table
-//   	Find a free physical page frame to allocate memory. (won't set valid bit)
-//      If not found, return -1. (current not allow)
-//----------------------------------------------------------------------
-
-int
-Machine::allocateFrame(void)
-{
-#if USE_BITMAP
-    int shift;
-    for (shift = 0; shift < NumPhysPages; shift++) {
-        if (!(bitmap >> shift & 0x1)) { // found empty bit
-            bitmap |= 0x1 << shift; // set the bit to used
-            DEBUG('M', "Allocate physical page frame: %d\n", shift);
-            return shift;
-        }
-    }
-    DEBUG('M', "Out of physical page frame!\n", shift);
-    return -1;
-#elif INVERTED_PAGETABLE
-    for (int i = 0; i < NumPhysPages; i++) {
-        if (!pageTable[i].valid) {
-            return i;
-        }
-    }
-    ASSERT_MSG(FALSE, "Out of physical page frame! Current inverted page table don't support demand paging!")
-    return -1;
-#endif
-}
-
-//----------------------------------------------------------------------
-// Machine::freeMem
-//    Bitmap
-//   	Free current page table physical page frames.
-//    Inverted Page Table
-//   	Free current thread's physical page frames.
-//----------------------------------------------------------------------
-void
-Machine::freeMem(void)
-{
-#if USE_BITMAP
-    for (int i = 0; i < pageTableSize; i++) {
-        if (pageTable[i].valid) { // Free the "used" page frame
-            int pageFrameNum = pageTable[i].physicalPage;
-            bitmap &= ~(0x1 << pageFrameNum);
-            DEBUG('M', "Free physical page frame: %d\n", pageFrameNum);
-        }
-    }
-    DEBUG('M', "Bitmap after freed: %08X\n", bitmap);
-#elif INVERTED_PAGETABLE
-    for (int i = 0; i < NumPhysPages; i++) {
-        if (pageTable[i].threadId == currentThread->getThreadId()) {
-            pageTable[i].valid = FALSE;
-            DEBUG('M', "Free physical page frame: %d\n", i);
-        }
-    }
-    DEBUG('M', "Freed the memory hold by thread \"%s\".\n", currentThread->getName());
-#endif
-}
-
-#endif // USER_PROGRAM

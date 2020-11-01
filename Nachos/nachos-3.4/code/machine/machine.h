@@ -91,8 +91,6 @@ class Instruction {
                      // Immediates are sign-extended.
 };
 
-// Lab4: Global data structure for memory management
-
 // The following class defines the simulated host workstation hardware, as 
 // seen by user programs -- the CPU registers, main memory, etc.
 // User programs shouldn't be able to tell that they are running on our 
@@ -147,7 +145,6 @@ class Machine {
 
     void Debugger();		// invoke the user program debugger
     void DumpState();		// print the user CPU and memory state 
-		void DumpMemory();  // print the machine memory
 
 
 // Data structures -- all of these are accessible to Nachos kernel code.
@@ -185,15 +182,6 @@ class Machine {
     TranslationEntry *pageTable;
     unsigned int pageTableSize;
 
-#ifdef USER_PROGRAM
-		// Lab4: Global data structure for memory management
-		// Bitmap
-		unsigned int bitmap; // This can record 32 allocation units (sizeof(int)*8 = 32). Current NumPhysPages is 32 too.
-		// Bitmap and Inverted Page Table
-		int allocateFrame(void); // Find a empty allocation unit to put physical page frames
-		void freeMem(void); // Free current page table physical page frames
-#endif // USER_PROGRAM
-
   private:
     bool singleStep;		// drop back into the debugger after each
 				// simulated instruction
@@ -206,20 +194,6 @@ extern void ExceptionHandler(ExceptionType which);
 				// user system calls and exceptions
 				// Defined in exception.cc
 
-// Lab4: Page Fault and TLB Miss Handler
-// Exercise 2 and 3
-void TLBMissHandler(int virtAddr);
-// Exercise 3
-void TLBAlgoFIFO(TranslationEntry page);
-void TLBAlgoClock(TranslationEntry page);
-void TLBAlgoLRU(TranslationEntry page);
-//Exercise 7 Demand paging
-TranslationEntry PageFaultHandler(int virtAddr);
-
-// Lab4: Used for calculate TLB Miss rate (debug purpose)
-extern int TLBMissCount;
-extern int TranslateCount;
-void PrintTLBStatus(void);
 
 // Routines for converting Words and Short Words to and from the
 // simulated machine's format of little endian.  If the host machine

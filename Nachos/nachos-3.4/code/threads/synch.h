@@ -40,21 +40,16 @@ class Semaphore {
   public:
     Semaphore(char* debugName, int initialValue);	// set initial value
     ~Semaphore();   					// de-allocate semaphore
-    char* getName() { return name; }			// debugging assist
+    char* getName() { return name;}			// debugging assist
     
     void P();	 // these are the only operations on a semaphore
     void V();	 // they are both *atomic*
-
-    int getValue() { return value; } // get the value (for Lock::isLocked())
     
   private:
     char* name;        // useful for debugging
     int value;         // semaphore value, always >= 0
     List *queue;       // threads waiting in P() for the value to be > 0
 };
-
-// Lab3: Lock state (deprecated)
-// enum LockStatus { FREE, BUSY };
 
 // The following class defines a "lock".  A lock can be BUSY or FREE.
 // There are only two operations allowed on a lock: 
@@ -67,7 +62,7 @@ class Semaphore {
 // In addition, by convention, only the thread that acquired the lock
 // may release it.  As with semaphores, you can't read the lock value
 // (because the value might change immediately after you read it).  
-// Lab3: Mutex Lock
+
 class Lock {
   public:
     Lock(char* debugName);  		// initialize lock to be FREE
@@ -81,14 +76,10 @@ class Lock {
 					// holds this lock.  Useful for
 					// checking in Release, and in
 					// Condition variable ops below.
-    bool isLocked() { return !semaphore->getValue(); } // true if it's lock
 
   private:
     char* name;				// for debugging
     // plus some other stuff you'll need to define
-    // LockStatus status; // Lock status (deprecated)
-    Thread* holderThread; // Thread which is holding this lock
-    Semaphore* semaphore; // Use semaphore to implement lock
 };
 
 // The following class defines a "condition variable".  A condition
@@ -141,52 +132,5 @@ class Condition {
   private:
     char* name;
     // plus some other stuff you'll need to define
-    List* waitQueue; // Waiting queue for the Thread blocked by this condition
 };
-
-// Lab3: Challenge Barrier
-
-class Barrier {
-  public:
-    Barrier(char* debugName, int num); // initialize barrier
-    ~Barrier(); // deallocate the barrier
-    char* getName() { return (name); } // debugging assist
-
-    void ArrivedAndWait(); // Sleep the Thread until all the Threads arrived
-
-  private:
-    char* name;             // useful for debugging
-    int remain;             // How many Threads have not arrived
-    int num_threads;        // Total Threads
-    Lock* mutex;            // Lock for "remain"
-    Condition* condition;   // Used to sleep the Thread and wake them up
-};
-
-// Lab3: Challenge Reader-Writer Lock
-
-class ReaderWriterLock {
-  public:
-    ReaderWriterLock(char* debugName); // initialize barrier
-    ~ReaderWriterLock(); // deallocate the barrier
-    char* getName() { return (name); } // debugging assist/
-
-    // For Reader
-    void ReaderAcquire();
-    void ReaderRelease();
-    // For Writer
-    void WriterAcquire();
-    void WriterRelease();
-  
-  private:
-    char* name;             // useful for debugging
-    int blockingReader;     // counts for blocking readers
-
-    // "Global" mutex lock for writer that can be release by other
-    // Alias g in comment
-    Semaphore* binary_semaphore_writer;
-    // Lock used by reader to protect number "blockingReader"
-    // Alias r in comment
-    Lock* mutex_reader;
-};
-
 #endif // SYNCH_H

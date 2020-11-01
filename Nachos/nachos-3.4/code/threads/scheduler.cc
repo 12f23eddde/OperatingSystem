@@ -29,7 +29,6 @@
 
 Scheduler::Scheduler()
 { 
-    lastSwitchTick = stats->totalTicks; // Lab2: Initialize lastSwitchTick
     readyList = new List; 
 } 
 
@@ -57,8 +56,7 @@ Scheduler::ReadyToRun (Thread *thread)
     DEBUG('t', "Putting thread %s on ready list.\n", thread->getName());
 
     thread->setStatus(READY);
-    // readyList->Append((void *)thread); // Orignal
-    readyList->SortedInsert((void *)thread, thread->getPriority()); // Lab2: insert Thread with priority
+    readyList->Append((void *)thread);
 }
 
 //----------------------------------------------------------------------
@@ -146,27 +144,4 @@ Scheduler::Print()
 {
     printf("Ready list contents:\n");
     readyList->Mapcar((VoidFunctionPtr) ThreadPrint);
-}
-
-//----------------------------------------------------------------------
-// Scheduler::RRHandler (Lab2)
-// 	Round Robin Rescheduling, by reordering the ready list.
-//	(Called when the timer interrupt triggered)
-//----------------------------------------------------------------------
-static void
-RRHandler(int dummy)
-{
-    int timeDuration = stats->totalTicks - scheduler->lastSwitchTick;
-    printf("\nTimer interrupt with duration: %d", timeDuration);
-    if (timeDuration >= TimerTicks) {
-        if (interrupt->getStatus() != IdleMode) { // IdleMode == readyList empty
-            printf(" (Determine to Context switch)\n");
-            interrupt->YieldOnReturn();
-            scheduler->lastSwitchTick = stats->totalTicks; // update lastSwitchTick
-        } else {
-            printf(" (readyList is Empty)\n");
-        }
-    } else {
-        printf("\n");
-    }
 }

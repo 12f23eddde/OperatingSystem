@@ -78,88 +78,31 @@ AddrSpace::AddrSpace(OpenFile *executable)
     numPages = divRoundUp(size, PageSize);
     size = numPages * PageSize;
 
-#ifndef DEMAND_PAGING
     ASSERT(numPages <= NumPhysPages);		// check we're not trying
 						// to run anything too big --
 						// at least until we have
 						// virtual memory
-#else
-    // Create a virtual memory with the size that the executable file need.
-    DEBUG('a', "Demand paging: creating virtual memory!\n");
-    bool success_create_vm = fileSystem->Create("VirtualMemory", size);
-    ASSERT_MSG(success_create_vm, "fail to create virtual memory");
-#endif
 
-#ifndef INVERTED_PAGETABLE
-    DEBUG('a', "Initializing address space (page table), num pages %d, size %d\n", 
+    DEBUG('a', "Initializing address space, num pages %d, size %d\n", 
 					numPages, size);
 // first, set up the translation 
     pageTable = new TranslationEntry[numPages];
     for (i = 0; i < numPages; i++) {
-	pageTable[i].virtualPage = i;	// for now (default), virtual page # = phys page #
-
-#ifndef DEMAND_PAGING // Lab4: Lazy-loading (Demand paging)
-#if USE_BITMAP // Lab4: Global data structure for memory management
-    pageTable[i].physicalPage = machine->allocateFrame();
-    ASSERT_MSG(pageTable[i].physicalPage != -1, "No free page frame."); // Currently, all page need to be loaded into the memory
-#elif USE_LINKED_LIST
-    // TODO
-#else // not using data structure (i.e. Original linear allocation)
+	pageTable[i].virtualPage = i;	// for now, virtual page # = phys page #
 	pageTable[i].physicalPage = i;
-#endif // Free memory space data structure
 	pageTable[i].valid = TRUE;
-#else // Demand Paging
-    pageTable[i].valid = FALSE;
-#endif
 	pageTable[i].use = FALSE;
 	pageTable[i].dirty = FALSE;
 	pageTable[i].readOnly = FALSE;  // if the code segment was entirely on 
 					// a separate page, we could set its 
 					// pages to be read-only
     }
-#if USE_BITMAP && !DEMAND_PAGING
-    DEBUG('M', "Bitmap after allocate: %08X\n", machine->bitmap);
-#endif // DEMAND_PAGING
-#else // Use Inverted Page Table
-    for (i = 0; i < numPages; i++) {
-        machine->pageTable[i].physicalPage = machine->allocateFrame(); // Currently don't support demand paging
-        machine->pageTable[i].valid = TRUE;
-        machine->pageTable[i].use = FALSE;
-        machine->pageTable[i].dirty = FALSE;
-        machine->pageTable[i].readOnly = FALSE;
-
-        machine->pageTable[i].threadId = currentThread->getThreadId(); // The additional part of inverted page table
-    }
-    DEBUG('M', "Initialized memory for thread \"%s\".\n", currentThread->getName());
-#endif // INVERTED_PAGETABLE
     
-#ifndef DEMAND_PAGING // If use lazy loading then don't load executable into memory at first.
-// zero out the entire (needed) address space (size), to zero the unitialized data segment 
+// zero out the entire address space, to zero the unitialized data segment 
 // and the stack segment
     bzero(machine->mainMemory, size);
 
-#if USE_BITMAP
-    // TODO: Current memroy load sequentially, but what we need is load the memory into
-    //       the page that allocate by bitmap.
-
-    // char *tempMemory;
-    // tempMemory = new char[size];
-    // for (i = 0; i < size; i++)
-    //     tempMemory[i] = 0;
-
-    // if (noffH.code.size > 0) {
-    //     DEBUG('a', "Initializing code segment, at 0x%x, size %d\n", 
-	// 		noffH.code.virtualAddr, noffH.code.size);
-    //     executable->ReadAt(&(tempMemory[noffH.code.virtualAddr]),
-	// 		noffH.code.size, noffH.code.inFileAddr);
-    // }
-    // if (noffH.initData.size > 0) {
-    //     DEBUG('a', "Initializing data segment, at 0x%x, size %d\n", 
-	// 		noffH.initData.virtualAddr, noffH.initData.size);
-    //     executable->ReadAt(&(tempMemory[noffH.initData.virtualAddr]),
-	// 		noffH.initData.size, noffH.initData.inFileAddr);
-    // }
-
+// then, copy in the code and data segments into memory
     if (noffH.code.size > 0) {
         DEBUG('a', "Initializing code segment, at 0x%x, size %d\n", 
 			noffH.code.virtualAddr, noffH.code.size);
@@ -172,53 +115,6 @@ AddrSpace::AddrSpace(OpenFile *executable)
         executable->ReadAt(&(machine->mainMemory[noffH.initData.virtualAddr]),
 			noffH.initData.size, noffH.initData.inFileAddr);
     }
-#else // original version
-    // then, copy in the code and data segments into memory
-    if (noffH.code.size > 0) {
-        DEBUG('a', "Initializing code segment, at 0x%x, size %d\n", 
-			noffH.code.virtualAddr, noffH.code.size);
-        executable->ReadAt(&(machine->mainMemory[noffH.code.virtualAddr]),
-			noffH.code.size, noffH.code.inFileAddr);
-    }
-    if (noffH.initData.size > 0) {
-        DEBUG('a', "Initializing data segment, at 0x%x, size %d\n", 
-			noffH.initData.virtualAddr, noffH.initData.size);
-        executable->ReadAt(&(machine->mainMemory[noffH.initData.virtualAddr]),
-			noffH.initData.size, noffH.initData.inFileAddr);
-    }
-#endif // USE_BITMAP
-#else // Use demand paging
-// zero out the entire address space (MemorySize), to zero the unitialized data segment 
-// and the stack segment
-    bzero(machine->mainMemory, MemorySize);
-
-    DEBUG('a', "Demand paging: copy executable to virtual memory!\n");
-
-    OpenFile *vm = fileSystem->Open("VirtualMemory");
-
-    char *virtualMemory_temp;
-    virtualMemory_temp = new char[size];
-    for (i = 0; i < size; i++)
-        virtualMemory_temp[i] = 0;
-
-    if (noffH.code.size > 0) {
-        DEBUG('a', "\tCopying code segment, at 0x%x, size %d\n",
-              noffH.code.virtualAddr, noffH.code.size);
-        executable->ReadAt(&(virtualMemory_temp[noffH.code.virtualAddr]),
-                           noffH.code.size, noffH.code.inFileAddr);
-        vm->WriteAt(&(virtualMemory_temp[noffH.code.virtualAddr]),
-                    noffH.code.size, noffH.code.virtualAddr*PageSize);
-    }
-    if (noffH.initData.size > 0) {
-        DEBUG('a', "\tCopying data segment, at 0x%x, size %d\n",
-              noffH.initData.virtualAddr, noffH.initData.size);
-        executable->ReadAt(&(virtualMemory_temp[noffH.initData.virtualAddr]),
-                           noffH.initData.size, noffH.initData.inFileAddr);
-        vm->WriteAt(&(virtualMemory_temp[noffH.initData.virtualAddr]),
-                    noffH.initData.size, noffH.initData.virtualAddr*PageSize);
-    }
-    delete vm; // Close the file
-#endif
 
 }
 
@@ -272,15 +168,8 @@ AddrSpace::InitRegisters()
 //	For now, nothing!
 //----------------------------------------------------------------------
 
-void AddrSpace::SaveState()
-{
-#ifdef USE_TLB // Lab4: Clean up TLB
-    DEBUG('T', "Clean up TLB due to Context Switch!\n");
-    for (int i = 0; i < TLBSize; i++) {
-        machine->tlb[i].valid = FALSE;
-    }
-#endif
-}
+void AddrSpace::SaveState() 
+{}
 
 //----------------------------------------------------------------------
 // AddrSpace::RestoreState
@@ -290,38 +179,8 @@ void AddrSpace::SaveState()
 //      For now, tell the machine where to find the page table.
 //----------------------------------------------------------------------
 
-void AddrSpace::RestoreState()
+void AddrSpace::RestoreState() 
 {
-// If using inverted page table, because there is only one page table (for a machine)
-// So we won't need the address space page table
-#ifndef INVERTED_PAGETABLE
     machine->pageTable = pageTable;
     machine->pageTableSize = numPages;
-#endif
-}
-
-//----------------------------------------------------------------------
-// AddrSpace::PrintState
-// 	Print the state of this address space. (debug usage)
-//----------------------------------------------------------------------
-
-void
-AddrSpace::PrintState() 
-{
-    printf("=== %s ===\n", COLORED(BLUE, "Address Space Information"));
-    printf("numPages = %d\n", numPages);
-    printf("VPN\tPPN\tvalid\tRO\tuse\tdirty\n");
-    for (int i = 0; i < numPages; i++) {
-        printf("%d\t", pageTable[i].virtualPage);
-        printf("%d\t", pageTable[i].physicalPage);
-        printf("%d\t", pageTable[i].valid);
-        printf("%d\t", pageTable[i].use);
-        printf("%d\t", pageTable[i].dirty);
-        printf("%d\t", pageTable[i].readOnly);
-        printf("\n");
-    }
-#if USE_BITMAP
-    DEBUG('M', "Current Bitmap: %08X\n", machine->bitmap);
-#endif
-    printf("=================================\n");
 }

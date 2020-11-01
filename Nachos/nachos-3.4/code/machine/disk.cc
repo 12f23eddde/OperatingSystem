@@ -117,9 +117,8 @@ Disk::ReadRequest(int sectorNumber, char* data)
 {
     int ticks = ComputeLatency(sectorNumber, FALSE);
 
-    ASSERT_MSG(!active, "Only one request at a time"); // only one request at a time
-    ASSERT_MSG((sectorNumber >= 0) && (sectorNumber < NumSectors),
-                "Not a proper disk sector read request");
+    ASSERT(!active);				// only one request at a time
+    ASSERT((sectorNumber >= 0) && (sectorNumber < NumSectors));
     
     DEBUG('d', "Reading from sector %d\n", sectorNumber);
     Lseek(fileno, SectorSize * sectorNumber + MagicSize, 0);
@@ -138,9 +137,8 @@ Disk::WriteRequest(int sectorNumber, char* data)
 {
     int ticks = ComputeLatency(sectorNumber, TRUE);
 
-    ASSERT_MSG(!active, "Only one request at a time"); // only one request at a time
-    ASSERT_MSG((sectorNumber >= 0) && (sectorNumber < NumSectors),
-                "Not a proper disk sector write request");
+    ASSERT(!active);
+    ASSERT((sectorNumber >= 0) && (sectorNumber < NumSectors));
     
     DEBUG('d', "Writing to sector %d\n", sectorNumber);
     Lseek(fileno, SectorSize * sectorNumber + MagicSize, 0);

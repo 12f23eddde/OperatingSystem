@@ -8,16 +8,7 @@
 # All rights reserved.  See copyright.h for copyright notice and limitation 
 # of liability and disclaimer of warranty provisions.
 
-# Original
-#DEFINES =-DTHREADS -DUSER_PROGRAM -DVM -DFILESYS_NEEDED -DFILESYS
-# Lab5 (use TEST_FILESYS to disable other parsing in thread/main.cc)
-# DEFINES =-DTHREADS -DUSER_PROGRAM -DVM -DFILESYS_NEEDED -DFILESYS -DTEST_FILESYS
-# Lab5 use INDIRECT_MAP to enable indirect mapping (support large file)
-# DEFINES =-DTHREADS -DUSER_PROGRAM -DVM -DFILESYS_NEEDED -DFILESYS -DTEST_FILESYS -DINDIRECT_MAP
-# Lab5 use MULTI_LEVEL_DIR to enable multi-level directory structure
-# DEFINES =-DTHREADS -DUSER_PROGRAM -DVM -DFILESYS_NEEDED -DFILESYS -DTEST_FILESYS -DINDIRECT_MAP -DMULTI_LEVEL_DIR
-# Lab5 (dynamic allocate file size haven't support indirect mapping)
-DEFINES =-DTHREADS -DUSER_PROGRAM -DVM -DFILESYS_NEEDED -DFILESYS -DTEST_FILESYS -DMULTI_LEVEL_DIR
+DEFINES =-DTHREADS -DUSER_PROGRAM -DVM -DFILESYS_NEEDED -DFILESYS
 INCPATH = -I../filesys -I../bin -I../vm -I../userprog -I../threads -I../machine
 HFILES = $(THREAD_H) $(USERPROG_H) $(VM_H) $(FILESYS_H)
 CFILES = $(THREAD_C) $(USERPROG_C) $(VM_C) $(FILESYS_C)

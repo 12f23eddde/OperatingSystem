@@ -73,52 +73,13 @@ extern void DEBUG (char flag, char* format, ...);  	// Print debug message
 //	NOTE: needs to be a #define, to be able to print the location 
 //	where the error occurred.
 //----------------------------------------------------------------------
-#define ASSERT(condition)                                                          \
-    if (!(condition))                                                              \
-    {                                                                              \
-        fprintf(stderr, COLORED(FAIL, "Assertion failed: line %d, file \"%s\"\n"), \
-                __LINE__, __FILE__);                                               \
-        fflush(stderr);                                                            \
-        Abort();                                                                   \
+#define ASSERT(condition)                                                     \
+    if (!(condition)) {                                                       \
+        fprintf(stderr, "Assertion failed: line %d, file \"%s\"\n",           \
+                __LINE__, __FILE__);                                          \
+	fflush(stderr);							      \
+        Abort();                                                              \
     }
 
-//----------------------------------------------------------------------
-// ASSERT_MSG
-//      If condition is false,  print a message and dump core.
-//	Useful for documenting assumptions in the code.
-//----------------------------------------------------------------------
-#define ASSERT_MSG(condition, message)                                                               \
-    if (!(condition))                                                                                \
-    {                                                                                                \
-        fprintf(stderr, COLORED(FAIL, "Assertion failed: due to \"%s\", at line %d, file \"%s\"\n"), \
-                message, __LINE__, __FILE__);                                                        \
-        fflush(stderr);                                                                              \
-        Abort();                                                                                     \
-    }
-
-// My customized ANSI colour codes
-// Foreground color
-#define HEADER "\033[95m"
-#define OKBLUE "\033[94m"
-#define OKGREEN "\033[92m"
-#define WARNING "\033[93m"
-#define FAIL "\033[91m"
-#define GREEN "\033[32m"
-#define BLUE "\033[34m"
-// Background color
-#define HIGHLIGHT "\033[103m"
-// Typographical Emphasis
-#define BOLD "\033[1m"
-#define ITALIC "\033[3m"
-#define UNDERLINE "\033[4m"
-// All in one
-#define IMPORTANT "\033[1;90;103m"
-// Other
-#define INVERSE "\033[7m"
-#define ENDC "\033[0m"
-
-// Color the string using ANSI escape code.
-#define COLORED(color, string) \
-    color string ENDC
 
 #endif // UTILITY_H

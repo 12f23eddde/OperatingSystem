@@ -19,8 +19,6 @@
 #include <strings.h>
 #endif
 
-#define FreeMapSector 		0
-
 //----------------------------------------------------------------------
 // OpenFile::OpenFile
 // 	Open a Nachos file for reading and writing.  Bring the file header
@@ -33,9 +31,6 @@ OpenFile::OpenFile(int sector)
 { 
     hdr = new FileHeader;
     hdr->FetchFrom(sector);
-    // TODO set file path maybe!!!!
-    hdr->setHeaderSector(sector); // Necessary, because we need to update
-                                  // FileHeader(i-node) later on.
     seekPosition = 0;
 }
 
@@ -46,7 +41,6 @@ OpenFile::OpenFile(int sector)
 
 OpenFile::~OpenFile()
 {
-    hdr->WriteBack(hdr->getHeaderSector()); // Update the header info
     delete hdr;
 }
 
@@ -146,10 +140,6 @@ OpenFile::ReadAt(char *into, int numBytes, int position)
     // copy the part we want
     bcopy(&buf[position - (firstSector * SectorSize)], into, numBytes);
     delete [] buf;
-
-    // Lab5: file header info update
-    hdr->setVisitTime(getCurrentTime());
-
     return numBytes;
 }
 
@@ -160,18 +150,6 @@ OpenFile::WriteAt(char *from, int numBytes, int position)
     int i, firstSector, lastSector, numSectors;
     bool firstAligned, lastAligned;
     char *buf;
-
-    // Lab5: dynamic allocate file size
-    if (position + numBytes > fileLength) {
-        BitMap *freeMap = new BitMap(NumSectors);
-        OpenFile* freeMapFile = new OpenFile(FreeMapSector);
-        freeMap->FetchFrom(freeMapFile);
-        hdr->ExpandFileSize(freeMap, position + numBytes - fileLength);
-        hdr->WriteBack(hdr->getHeaderSector());
-        freeMap->WriteBack(freeMapFile);
-        delete freeMapFile;
-        fileLength = hdr->FileLength();
-    }
 
     if ((numBytes <= 0) || (position >= fileLength))
 	return 0;				// check request
@@ -204,11 +182,6 @@ OpenFile::WriteAt(char *from, int numBytes, int position)
         synchDisk->WriteSector(hdr->ByteToSector(i * SectorSize), 
 					&buf[(i - firstSector) * SectorSize]);
     delete [] buf;
-
-    // Lab5: file header info update
-    hdr->setVisitTime(getCurrentTime());
-    hdr->setModifyTime(getCurrentTime());
-
     return numBytes;
 }
 

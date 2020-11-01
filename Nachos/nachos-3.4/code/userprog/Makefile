@@ -9,21 +9,7 @@
 # All rights reserved.  See copyright.h for copyright notice and limitation 
 # of liability and disclaimer of warranty provisions.
 
-# without TLB (default)
-# DEFINES = -DUSER_PROGRAM -DFILESYS_NEEDED -DFILESYS_STUB
-# with TLB (Lab 4 Exercise 2)
-# DEFINES = -DUSER_PROGRAM -DFILESYS_NEEDED -DFILESYS_STUB -DUSE_TLB
-# with TLB with Bitmap (Lab 4 Exercise 4)
-# DEFINES = -DUSER_PROGRAM -DFILESYS_NEEDED -DFILESYS_STUB -DUSE_TLB -DUSE_BITMAP
-# with TLB and Demand Paging with Bitmap (Lab 4 Exercise 6, 7)
-# DEFINES = -DUSER_PROGRAM -DFILESYS_NEEDED -DFILESYS_STUB -DUSE_TLB -DUSE_BITMAP -DDEMAND_PAGING
-# with Inverted Page Table (Lab 4 Challenge 2) (without Bitmap)
-DEFINES = -DUSER_PROGRAM -DFILESYS_NEEDED -DFILESYS_STUB -DINVERTED_PAGETABLE
-# with Inverted Page Table, TLB (Lab 4 Challenge 2 (TODO)) (without Bitmap)
-# DEFINES = -DUSER_PROGRAM -DFILESYS_NEEDED -DFILESYS_STUB -DUSE_TLB -DINVERTED_PAGETABLE
-# with Inverted Page Table, TLB and Demand Paging (Lab 4 Challenge 2 (TODO)) (without Bitmap)
-# DEFINES = -DUSER_PROGRAM -DFILESYS_NEEDED -DFILESYS_STUB -DUSE_TLB -DINVERTED_PAGETABLE -DDEMAND_PAGING
-
+DEFINES = -DUSER_PROGRAM -DFILESYS_NEEDED -DFILESYS_STUB
 INCPATH = -I../bin -I../filesys -I../userprog -I../threads -I../machine
 HFILES = $(THREAD_H) $(USERPROG_H)
 CFILES = $(THREAD_C) $(USERPROG_C)

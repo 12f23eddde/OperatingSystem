@@ -156,7 +156,7 @@ OpenForWrite(char *name)
 {
     int fd = open(name, O_RDWR|O_CREAT|O_TRUNC, 0666);
 
-    ASSERT_MSG(fd >= 0, "open failed"); 
+    ASSERT(fd >= 0); 
     return fd;
 }
 
@@ -173,9 +173,7 @@ OpenForReadWrite(char *name, bool crashOnError)
 {
     int fd = open(name, O_RDWR, 0);
 
-    char errorMsg[100];
-    sprintf(errorMsg, crashOnError ? "crash on error" : "open failed");
-    ASSERT_MSG(!crashOnError || fd >= 0, strdup(errorMsg));
+    ASSERT(!crashOnError || fd >= 0);
     return fd;
 }
 
@@ -188,9 +186,7 @@ void
 Read(int fd, char *buffer, int nBytes)
 {
     int retVal = read(fd, buffer, nBytes);
-    char errorMsg[100];
-    sprintf(errorMsg, "read fails: retVal %d must equal to nBytes %d", retVal, nBytes);
-    ASSERT_MSG(retVal == nBytes, strdup(errorMsg));
+    ASSERT(retVal == nBytes);
 }
 
 //----------------------------------------------------------------------

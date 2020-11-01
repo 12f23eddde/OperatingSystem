@@ -35,7 +35,7 @@ CPP = gcc -E
 INCDIR =-I../userprog -I../threads
 CFLAGS = -G 0 -c $(INCDIR)
 
-all: halt shell matmult sort fibonacci exit filesyscall execjoin forkyield
+all: halt shell matmult sort
 
 start.o: start.s ../userprog/syscall.h
 	$(CPP) $(CPPFLAGS) start.c > strt.s
@@ -65,38 +65,3 @@ matmult.o: matmult.c
 matmult: matmult.o start.o
 	$(LD) $(LDFLAGS) start.o matmult.o -o matmult.coff
 	../bin/coff2noff matmult.coff matmult
-
-# For Lab4: Test the TLB Miss Rate
-fibonacci.o: fibonacci.c
-	$(CC) $(CFLAGS) -c fibonacci.c
-fibonacci: fibonacci.o start.o
-	$(LD) $(LDFLAGS) start.o fibonacci.o -o fibonacci.coff
-	../bin/coff2noff fibonacci.coff fibonacci
-
-# For Lab4: Test the multi-thread user program
-exit.o: exit.c
-	$(CC) $(CFLAGS) -c exit.c
-exit: exit.o start.o
-	$(LD) $(LDFLAGS) start.o exit.o -o exit.coff
-	../bin/coff2noff exit.coff exit
-
-# For Lab5: Test file system syscall
-filesyscall.o: filesyscall.c
-	$(CC) $(CFLAGS) -c filesyscall.c
-filesyscall: filesyscall.o start.o
-	$(LD) $(LDFLAGS) start.o filesyscall.o -o filesyscall.coff
-	../bin/coff2noff filesyscall.coff filesyscall
-
-# For Lab5: Test address space control operations syscall
-execjoin.o: execjoin.c
-	$(CC) $(CFLAGS) -c execjoin.c
-execjoin: execjoin.o start.o
-	$(LD) $(LDFLAGS) start.o execjoin.o -o execjoin.coff
-	../bin/coff2noff execjoin.coff execjoin
-
-# For Lab5: Test user-level thread operations syscall
-forkyield.o: forkyield.c
-	$(CC) $(CFLAGS) -c forkyield.c
-forkyield: forkyield.o start.o
-	$(LD) $(LDFLAGS) start.o forkyield.o -o forkyield.coff
-	../bin/coff2noff forkyield.coff forkyield

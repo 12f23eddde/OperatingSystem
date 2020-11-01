@@ -56,7 +56,7 @@ Copy(char *from, char *to)
     }
     
     openFile = fileSystem->Open(to);
-    ASSERT_MSG(openFile != NULL, "Fail to open dest file in -cp");
+    ASSERT(openFile != NULL);
     
 // Copy the data in TransferSize chunks
     buffer = new char[TransferSize];
@@ -183,25 +183,3 @@ PerformanceTest()
     stats->Print();
 }
 
-/**********************************************************************/
-/******************** Lab5: Multi-level Directory *********************/
-/**********************************************************************/
-
-#ifdef MULTI_LEVEL_DIR
-
-//----------------------------------------------------------------------
-// MakeDir
-// 	Making the directory with name "dirname" in Nachos file system
-//----------------------------------------------------------------------
-
-void
-MakeDir(char *dirname)
-{
-    DEBUG('D', COLORED(BLUE, "Making directory: %s\n"), dirname);
-    fileSystem->Create(dirname, -1);
-    // -1 means DirectoryFileSize
-    // But because of you can only include directory.h in filesys.cc
-    // If you include in filesys.h, then it will cause error
-}
-
-#endif
