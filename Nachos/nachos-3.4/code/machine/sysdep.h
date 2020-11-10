@@ -59,6 +59,7 @@ extern void DeallocBoundedArray(char *p, int size);
 // These are assumed to be portable, so we don't include a wrapper.
 extern "C" {
 int atoi(const char *str);
+char* itoa(const int a);
 double atof(const char *str);
 int abs(int i);
 

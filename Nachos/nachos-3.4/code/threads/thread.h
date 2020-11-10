@@ -80,10 +80,11 @@ class Thread {
     int* stackTop;			 // the current stack pointer
     void *machineState[MachineStateSize];  // all registers except for stackTop
 
-    int uid, tid;  // [12f23edde] Add uid, pid
+    int uid, tid;  // [lab1] Add uid, pid
+    int priority;  // [lab2] set priority HIGH 0 - 127 LOW
 
   public:
-    Thread(char* debugName);		// initialize a Thread 
+    Thread(char* debugName, int pr = 0);		// initialize a Thread // [lab2] set pr
     ~Thread(); 				// deallocate a Thread
 					// NOTE -- thread being deleted
 					// must not be running when delete 
@@ -104,11 +105,15 @@ class Thread {
     char* getName() { return (name); }
     void Print() { printf("%s, ", name); }
 
-    // [12f23edde] Add uid, pid
+    // [lab1] Add uid, pid
     int getUserId() { return uid; }
     int getThreadId() { return tid; }
     ThreadStatus getStatus() { return status; }
     void setUserId(int userId){ uid = userId; }
+
+    // [lab2] Add priority
+    int getPriority() { return priority; }
+    void setPriority(int newpr) {priority = newpr; }
 
   private:
     // some of the private data for this class is listed above

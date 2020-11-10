@@ -63,6 +63,7 @@ extern void Cleanup();
 static void
 TimerInterruptHandler(int dummy)
 {
+    printf("[handler] entering handler @ %d\n", stats->totalTicks);
     if (interrupt->getStatus() != IdleMode)
 	interrupt->YieldOnReturn();
 }
@@ -83,6 +84,7 @@ Initialize(int argc, char **argv)
     int argCount;
     char* debugArgs = "";
     bool randomYield = FALSE;
+    bool enableRoundRobin = FALSE;
 
 #ifdef USER_PROGRAM
     bool debugUserProg = FALSE;	// single step user program
@@ -110,6 +112,11 @@ Initialize(int argc, char **argv)
 						// number generator
 	    randomYield = TRUE;
 	    argCount = 2;
+	} else if (!strcmp(*argv, "-rr")) {
+        // Start Round-Robin Timer
+	    ASSERT(argc > 1);
+	    enableRoundRobin = TRUE;
+	    argCount = 2;
 	}
 #ifdef USER_PROGRAM
 	if (!strcmp(*argv, "-s"))
@@ -136,9 +143,14 @@ Initialize(int argc, char **argv)
     stats = new Statistics();			// collect statistics
     interrupt = new Interrupt;			// start up interrupt handling
     scheduler = new Scheduler();		// initialize the ready queue
-    if (randomYield)				// start the timer (if needed)
-	timer = new Timer(TimerInterruptHandler, 0, randomYield);
-
+    if (randomYield){               // start the timer (if needed)
+        timer = new Timer(TimerInterruptHandler, 0, randomYield);
+    } else if (enableRoundRobin){
+        // [lab2] RR
+        // create customed TimerInterruptHandler with random disabled
+        // hack here: pass &scheduler as arg
+        timer = new Timer(scheduler->handleThreadTimeUp, (int)scheduler, false);
+    }
     threadToBeDestroyed = NULL;
 
     // We didn't explicitly allocate the current thread we are running in.
@@ -199,17 +211,18 @@ Cleanup()
 }
 
 // [Lab1] printThreadsList
+// [lab2] add priority
 void printThreadsList(){
-    printf("%5s %5s %20s %20s\n", "<tid>", "<uid>", "<name>", "<status>");
+    printf("%-5s %-5s %-5s %-15s %-15s\n", "<tid>", "<uid>", "<pri>", "<name>", "<status>");
     for(int i = 0; i < MAX_THREADS; i++){
         if(tid_allocated[i]&&threadsList[i]){
-            printf("%5d %5d %20s ", threadsList[i]->getThreadId(), threadsList[i]->getUserId(), threadsList[i]->getName());
+            printf("%-5d %-5d %-5d %-15s ", threadsList[i]->getThreadId(), threadsList[i]->getUserId(), threadsList[i]->getPriority(), threadsList[i]->getName());
             switch(threadsList[i]->getStatus()){
-                case JUST_CREATED:printf("%20s\n", "JUST_CREATED");break;
-                case RUNNING:printf("%20s\n", "RUNNING");break;
-                case READY:printf("%20s\n", "READY");break;
-                case BLOCKED:printf("%20s\n", "BLOCKED");break;
-                default:printf("%20s\n", "UNDEFINED");ASSERT(0);break;
+                case JUST_CREATED:printf("%-15s\n", "JUST_CREATED");break;
+                case RUNNING:printf("%-15s\n", "RUNNING");break;
+                case READY:printf("%-15s\n", "READY");break;
+                case BLOCKED:printf("%-15s\n", "BLOCKED");break;
+                default:printf("%-15s\n", "UNDEFINED");ASSERT(0);break;
             }
         }
     }

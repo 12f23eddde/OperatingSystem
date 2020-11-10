@@ -32,7 +32,8 @@
 //	"threadName" is an arbitrary string, useful for debugging.
 //----------------------------------------------------------------------
 
-Thread::Thread(char* threadName)
+// [lab2] set default pr to 0, which means highest priority
+Thread::Thread(char* threadName, int pr=0):priority(pr)
 {
     name = threadName;
     stackTop = NULL;

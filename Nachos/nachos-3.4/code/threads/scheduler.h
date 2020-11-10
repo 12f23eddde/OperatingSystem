@@ -17,9 +17,11 @@
 // the data structures and operations needed to keep track of which 
 // thread is running, and which threads are ready but not running.
 
+enum SchedulerPolicy { NAIVE, STATICPRIORTY, ROUND_ROBIN };
+
 class Scheduler {
   public:
-    Scheduler();			// Initialize list of ready threads 
+    Scheduler(SchedulerPolicy _policy=NAIVE, int _duration=200);			// Initialize list of ready threads 
     ~Scheduler();			// De-allocate ready list
 
     void ReadyToRun(Thread* thread);	// Thread can be dispatched.
@@ -27,10 +29,22 @@ class Scheduler {
 					// list, if any, and return thread.
     void Run(Thread* nextThread);	// Cause nextThread to start running
     void Print();			// Print contents of ready list
+   
+    // [lab2] manually set policy
+    void setPolicy(SchedulerPolicy newpolicy);
+    // [lab2] rr
+    void setSwitchDuration(int newduration);
+    static void handleThreadTimeUp(int ptr_int);
     
   private:
-    List *readyList;  		// queue of threads that are ready to run,
-				// but not running
+    List *readyList;  		// queue of threads that are ready to run, but not running
+    // [lab2] add policy to scheduler   
+    SchedulerPolicy policy;
+
+    // [lab2] Round-Robin
+    int switchDuration;   // switchDuration may not be accurate
+    int lastCalledTick;
+    void inline resetCalledTick();
 };
 
 #endif // SCHEDULER_H

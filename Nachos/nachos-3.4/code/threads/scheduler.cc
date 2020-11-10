@@ -27,9 +27,13 @@
 // 	Initialize the list of ready but not running threads to empty.
 //----------------------------------------------------------------------
 
-Scheduler::Scheduler()
+
+// [lab2] add policy
+Scheduler::Scheduler(SchedulerPolicy _policy=NAIVE, int _duration=200)
+:policy(_policy),switchDuration(_duration)
 { 
     readyList = new List; 
+    lastCalledTick = stats->totalTicks;
 } 
 
 //----------------------------------------------------------------------
@@ -56,8 +60,22 @@ Scheduler::ReadyToRun (Thread *thread)
     DEBUG('t', "Putting thread %s on ready list.\n", thread->getName());
 
     thread->setStatus(READY);
-    readyList->Append((void *)thread);
+
+    // [lab2]  Thank GOD!!! You got SortedInsert(), which inserts elements in asending order.
+    if (policy==STATICPRIORTY){
+        readyList->SortedInsert((void *)thread, thread->getPriority());
+    } else {
+        readyList->Append((void *)thread);
+    }
+
+    if(this->policy==STATICPRIORTY && thread->getPriority() < currentThread->getPriority()){
+        printf("[handler] context switch (pr) prev->pr=%d new-pr=%d\n", currentThread->getPriority(), thread->getPriority());
+        currentThread->setStatus(READY);
+        readyList->SortedInsert((void *)currentThread, currentThread->getPriority());
+        this->Run(thread);
+    }
 }
+    
 
 //----------------------------------------------------------------------
 // Scheduler::FindNextToRun
@@ -90,6 +108,9 @@ Scheduler::FindNextToRun ()
 void
 Scheduler::Run (Thread *nextThread)
 {
+    // [lab2] rr - resetCalledTick on thread switching
+    resetCalledTick();
+
     Thread *oldThread = currentThread;
     
 #ifdef USER_PROGRAM			// ignore until running user programs 
@@ -142,6 +163,40 @@ Scheduler::Run (Thread *nextThread)
 void
 Scheduler::Print()
 {
-    printf("Ready list contents:\n");
+    printf("Ready list contents: ");
     readyList->Mapcar((VoidFunctionPtr) ThreadPrint);
+    printf("\n");
 }
+
+// [lab2] manually set policy
+void Scheduler::setPolicy(SchedulerPolicy newpolicy){ policy = newpolicy; }
+
+// [lab2] Round-Robin
+void Scheduler::setSwitchDuration(int newduration){ 
+    ASSERT(switchDuration > TimerTicks);
+    switchDuration = newduration; }
+
+void Scheduler::handleThreadTimeUp(int ptr_int){
+    // [lab2] hack here: pass scheduler as int
+    Scheduler* curr_sche = (Scheduler*) ptr_int;
+
+    if (curr_sche->policy!=ROUND_ROBIN){
+        if (interrupt->getStatus() != IdleMode) {
+            // Not on RR, act like TimerInterruptHandler
+            printf("[handler] context switch (non-rr) \n");
+            interrupt->YieldOnReturn();
+        }
+        return;
+    }
+
+    int passedDuration = stats->totalTicks - curr_sche->lastCalledTick;
+    if(passedDuration >= curr_sche->switchDuration){
+        /* from interrupt.cc */
+        if (interrupt->getStatus() != IdleMode) {
+            printf("[handler] context switch (rr) duration=%d\n", passedDuration);
+            interrupt->YieldOnReturn();
+        }
+    }
+}
+
+void inline Scheduler::resetCalledTick(){ scheduler->lastCalledTick = stats->totalTicks; }
