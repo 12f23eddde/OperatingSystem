@@ -79,7 +79,8 @@ class Lock {
 
   private:
     char* name;				// for debugging
-    // plus some other stuff you'll need to define
+    Semaphore* mutex;  // [lab3] ptr to Semaphore
+    Thread* owner;  // [lab3] used in isHeldByCurrentThread()
 };
 
 // The following class defines a "condition variable".  A condition
@@ -131,6 +132,19 @@ class Condition {
 
   private:
     char* name;
-    // plus some other stuff you'll need to define
+    List* queue;  // [lab3] ptr to waitQueue
+};
+
+class Barrier{
+    public:
+      Barrier(int _threadsToWait);
+      ~Barrier();
+      void arrive_and_wait();
+    private:
+      char *name;
+      Condition *barrier;
+      Lock *mutex;  // protect threadsArrived
+      int threadsToWait;
+      int threadsArrived;
 };
 #endif // SYNCH_H

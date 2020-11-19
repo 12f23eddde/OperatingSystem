@@ -190,28 +190,29 @@ class Buffer{
         ~Buffer();
         void insertItem(int newelement);
         int popItem();
+        unsigned int bufferUsed(){return buffer->NumInList();}
+        unsigned int bufferTotal(){return bufferSize;}
         void printBuffer();
     private:
         List *buffer;  // Using linked list List* to avoid stack overflow
         // semaphores
-        Condition *waitForSpace;
-        Condition *waitForElement;
+        Semaphore *empty;
+        Semaphore *full;
         // locks
         Lock* mutex;
-        unsigned int bufferUsed;  // you need to protect this var
+        // vars for debug
         unsigned int bufferSize;
 };
 
 Buffer::Buffer(int bufferSize):bufferSize(bufferSize){
     buffer = new List;
-    waitForSpace = new Condition("4space");
-    waitForElement = new Condition("4element");
+    empty = new Semaphore("empty", bufferSize);
+    full = new Semaphore("full", 0);
     mutex = new Lock("bufferLock");
-    bufferUsed = 0;
 }
 
 Buffer::~Buffer(){
-    delete waitForSpace, waitForElement, buffer;
+    delete empty, full, buffer;
 }
 
 // [lab3] bufferPrint
@@ -221,12 +222,13 @@ void bufferPrint(int ptr){
 }
 
 void Buffer::printBuffer(){
-    printf("used=%d/%d elements=[",bufferUsed,bufferSize);
+    printf("used=%d/%d elements=[",bufferUsed(),bufferSize);
     buffer->Mapcar(bufferPrint); // apply bufferPrint to all elements in buffer
     printf("]\n");
 }
 
 void Buffer::insertItem(int newelement){
+    empty->P();
     mutex->Acquire();
 
     if ((void*)newelement == NULL){
@@ -234,46 +236,33 @@ void Buffer::insertItem(int newelement){
         ASSERT(FALSE);
     }
 
-    // With Mesa-like condition, thread has to check again condition itself
-    while (bufferUsed == bufferSize){
-        waitForSpace->Wait(mutex);
-    }
-
     buffer->Append((void*)newelement);
 
-    bufferUsed++;
-
-    waitForElement->Broadcast(mutex);
-
-    if(bufferUsed > bufferSize){
-        printf("[Buffer::insertItem] buffer overflow: %d/%d\n",bufferUsed, bufferSize);
+    unsigned int _bufferUsed = bufferUsed();
+    if(_bufferUsed > bufferSize){
+        printf("[Buffer::insertItem] buffer overflow: %d/%d\n",_bufferUsed, bufferSize);
         ASSERT(FALSE);
     }
+
     mutex->Release();
+    full->V();
 }
 
 int Buffer::popItem(){
+    full->P();
     mutex->Acquire();
     
-    // With Mesa-like condition, thread has to check again condition itself
-    while (bufferUsed == 0){
-        waitForElement->Wait(mutex);
-    }
-
     void* temp = buffer->Remove();
-
-    bufferUsed--;
-
-    waitForSpace->Broadcast(mutex);
-
+    
     if(temp == NULL){
         printf("[Buffer::insertItem] No Element in Buffer\n");
         ASSERT(FALSE);
     }
-    
-    mutex->Release();
-
     int topelement = (int) temp;
+
+    mutex->Release();
+    empty->V();
+
     return topelement;
 }
 
@@ -305,7 +294,6 @@ void consumerThread(int ptr){
 }
 
 void Lab3Test1(){
-    RandomInit(19260817);
     printf("Entering Test8\n");
     Buffer *currBuffer = new Buffer(3);
 
@@ -320,26 +308,8 @@ void Lab3Test1(){
     c1->Fork(consumerThread, (void*) currBuffer);
 }
 
-void Lab3Thread1(int ptr){
-    Barrier* barrier = (Barrier*)ptr;
-    for(int i = 1; i <= 5; i++){
-        printf("(%s) Reaching Stage %d\n", currentThread->getName(), i);
-        barrier->arrive_and_wait();
-    }
-}
+void Lab3Challenge1(){
 
-void Lab3Test2(){
-    Barrier *currBarrier = new Barrier(3);
-
-    Thread *p1 = new Thread("Thread 1");
-    Thread *p2 = new Thread("Thread 2");
-    Thread *p3 = new Thread("Thread 3");
-    Thread *p4 = new Thread("Thread 4");
-
-    p1->Fork(Lab3Thread1, (void*) currBarrier);
-    p2->Fork(Lab3Thread1, (void*) currBarrier);
-    p3->Fork(Lab3Thread1, (void*) currBarrier);
-    p4->Fork(Lab3Thread1, (void*) currBarrier);
 }
 
 //----------------------------------------------------------------------
@@ -359,7 +329,7 @@ ThreadTest()
         case 6: Lab2Test2();break;
         case 7: Lab2Test3();break;
         case 8: Lab3Test1();break;
-        case 9: Lab3Test2();break;
+        case 9: Lab3Challenge1();break;
         default: printf("No test specified.\n");break;
     }
 }

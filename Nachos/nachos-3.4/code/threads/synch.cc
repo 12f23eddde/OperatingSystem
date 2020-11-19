@@ -100,13 +100,133 @@ Semaphore::V()
 // Dummy functions -- so we can compile our later assignments 
 // Note -- without a correct implementation of Condition::Wait(), 
 // the test case in the network assignment won't work!
-Lock::Lock(char* debugName) {}
-Lock::~Lock() {}
-void Lock::Acquire() {}
-void Lock::Release() {}
 
-Condition::Condition(char* debugName) { }
-Condition::~Condition() { }
-void Condition::Wait(Lock* conditionLock) { ASSERT(FALSE); }
-void Condition::Signal(Lock* conditionLock) { }
-void Condition::Broadcast(Lock* conditionLock) { }
+Lock::Lock(char* debugName) {
+    name = debugName;
+    mutex = new Semaphore(debugName, 1);  // init with val 1
+    owner = NULL;
+}
+
+Lock::~Lock() {
+    delete mutex;
+}
+
+// [lab3] atomic funtion Acquire
+// to simplify things, we settle with P/V
+// YOU NEED TO PROTECT OWNER!
+void Lock::Acquire() {
+    DEBUG('-t', "Acquiring lock\n");
+    IntStatus oldLevel = interrupt->SetLevel(IntOff);
+    // begin critical zone
+    mutex->P();
+    owner = currentThread;
+    // end critical zone
+    (void) interrupt->SetLevel(oldLevel);
+    DEBUG('-t', "Acquired lock\n");
+}
+
+// [lab3] atomic funtion Release
+// to simplify things, we settle with P/V
+// YOU NEED TO PROTECT OWNER!
+void Lock::Release() {
+    DEBUG('-t', "Releasing lock\n");
+    IntStatus oldLevel = interrupt->SetLevel(IntOff);
+    // begin critical zone
+    mutex->V();
+    owner = NULL;
+    // end critical zone
+    (void) interrupt->SetLevel(oldLevel);
+    DEBUG('-t', "Released lock\n");
+}
+
+bool Lock::isHeldByCurrentThread() {
+    return currentThread == owner;
+}
+
+Condition::Condition(char* debugName) { 
+    name = debugName;
+    queue = new List();
+}
+Condition::~Condition() { 
+    delete queue;
+}
+
+// [lab3] atomic funtion Wait
+// release the lock, relinquish the CPU until signaled, then re-acquire the lock
+void Condition::Wait(Lock* conditionLock) { 
+    DEBUG('-t',"Condition::Wait\n");
+    IntStatus oldLevel = interrupt->SetLevel(IntOff);
+    // begin critical zone
+    conditionLock->Release();  // release the lock
+    // from Semaphore::P()  // relinquish the CPU until signaled
+    queue->Append((void *)currentThread);
+	currentThread->Sleep();
+    conditionLock->Acquire(); // re-acquire the lock
+    // end critical zone
+    (void) interrupt->SetLevel(oldLevel);
+}
+
+// [lab3] atomic function Signal
+// wake up a thread, if there are any waiting on the condition
+void Condition::Signal(Lock* conditionLock) { 
+    Thread* thread;
+    IntStatus oldLevel = interrupt->SetLevel(IntOff);
+    // begin critical zone
+    
+    ASSERT(conditionLock->isHeldByCurrentThread());
+    // from Semaphore::V()
+    thread = (Thread *)queue->Remove();
+    if (thread != NULL)	 { 
+        scheduler->ReadyToRun(thread);
+    }  
+    // end critical zone
+    (void) interrupt->SetLevel(oldLevel);
+}
+
+// [lab3] atomic function Broadcast
+// wake up all threads waiting on the condition
+void Condition::Broadcast(Lock* conditionLock) { 
+    Thread* thread;
+    IntStatus oldLevel = interrupt->SetLevel(IntOff);
+    // begin critical zone
+    ASSERT(conditionLock->isHeldByCurrentThread());
+    // from Semaphore::P()
+    thread = (Thread*) queue->Remove();
+    while (thread != NULL)	 {
+        scheduler->ReadyToRun(thread);
+        thread = (Thread *)queue->Remove();
+    }  
+    // end critical zone
+    (void) interrupt->SetLevel(oldLevel);
+}
+
+Barrier::Barrier(int _threadsToWait){
+    threadsToWait = _threadsToWait;
+    threadsArrived = 0;
+    mutex = new Lock("barrierLock");
+    barrier = new Condition("barrierCondition");
+}
+
+Barrier::~Barrier(){
+    delete mutex, barrier;
+}
+
+// [lab3] atomic function arrive_and_wait
+void Barrier::arrive_and_wait(){
+    IntStatus oldLevel = interrupt->SetLevel(IntOff);
+    mutex->Acquire();
+    // begin critical zone
+    
+    threadsArrived++;
+    if(threadsArrived == threadsToWait){
+        barrier->Broadcast(mutex);
+        threadsArrived=0;
+        printf("[Barrier::arrive_and_wait] Waking up threads\n");
+    }else{
+        barrier->Wait(mutex);
+    }
+
+    // end critical zone
+    mutex->Release();
+    (void) interrupt->SetLevel(oldLevel);
+}
