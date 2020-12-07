@@ -15,10 +15,15 @@
 // All rights reserved.  See copyright.h for copyright notice and limitation 
 // of liability and disclaimer of warranty provisions.
 
+////// enable code hint  //////
+////// comment when testing //////
+#define USE_VM
+#define FILESYS_NEEDED
+#define USER_PROGRAM
+
 #include "copyright.h"
 #include "system.h"
 #include "addrspace.h"
-#include "noff.h"
 #ifdef HOST_SPARC
 #include <strings.h>
 #endif
@@ -78,31 +83,53 @@ AddrSpace::AddrSpace(OpenFile *executable)
     numPages = divRoundUp(size, PageSize);
     size = numPages * PageSize;
 
-    ASSERT(numPages <= NumPhysPages);		// check we're not trying
-						// to run anything too big --
-						// at least until we have
-						// virtual memory
+    // check size of exectable
+    // EVEN WITH VM: buffer is the exact same size as main memory
+    ASSERT(numPages <= NumPhysPages);
+
+    printf("\033[1;33m[AddrSpace] Allocating %d pages to user program\n\033[0m", numPages);
 
     DEBUG('a', "Initializing address space, num pages %d, size %d\n", 
 					numPages, size);
-// first, set up the translation 
+
+    // Move Here
+    // zero out the entire address space, to zero the unitialized data segment 
+    // and the stack segment
+    // bzero(machine->mainMemory, size);
+
     pageTable = new TranslationEntry[numPages];
+
+# ifndef USE_VM
+// [lab4] [NOT USING VM]
+// first, set up the translation 
     for (i = 0; i < numPages; i++) {
-	pageTable[i].virtualPage = i;	// for now, virtual page # = phys page #
-	pageTable[i].physicalPage = i;
-	pageTable[i].valid = TRUE;
-	pageTable[i].use = FALSE;
-	pageTable[i].dirty = FALSE;
-	pageTable[i].readOnly = FALSE;  // if the code segment was entirely on 
+        pageTable[i].virtualPage = i;	// for now, virtual page # = phys page #
+        pageTable[i].physicalPage = machine->allocBit();  // [lab4] point to a Physical Page
+        pageTable[i].valid = TRUE;
+        pageTable[i].use = FALSE;
+        pageTable[i].dirty = FALSE;
+        pageTable[i].readOnly = FALSE;  // if the code segment was entirely on 
 					// a separate page, we could set its 
 					// pages to be read-only
+        
+        // [lab4] Check for errors
+        if (pageTable[i].physicalPage < 0 || pageTable[i].physicalPage >= NumPhysPages){
+            DEBUG('M', "\033[1;31m[AddrSpace] init pageTable[%d] with invalid PhyPage %d\n\033[0m", i, pageTable[i].physicalPage);
+            pageTable[i].valid = FALSE;
+        }
     }
-    
-// zero out the entire address space, to zero the unitialized data segment 
-// and the stack segment
-    bzero(machine->mainMemory, size);
+    // [lab4] DEBUG
+    machine->printTE(pageTable, numPages);
+
+   
 
 // then, copy in the code and data segments into memory
+
+# ifdef MULTITHREAD_SUPPORT
+    // [lab4] init Addrspace with real vaddr
+    writeSegmentToMem(&(noffH.code), executable);
+    writeSegmentToMem(&(noffH.initData), executable);
+# else
     if (noffH.code.size > 0) {
         DEBUG('a', "Initializing code segment, at 0x%x, size %d\n", 
 			noffH.code.virtualAddr, noffH.code.size);
@@ -115,6 +142,54 @@ AddrSpace::AddrSpace(OpenFile *executable)
         executable->ReadAt(&(machine->mainMemory[noffH.initData.virtualAddr]),
 			noffH.initData.size, noffH.initData.inFileAddr);
     }
+#endif
+
+#else
+// [lab4] USING VM
+    // get vm file ready
+    DEBUG('a', "[AddrSpace] VM: Creating vm file\n");
+    if(!fileSystem->Create("vm.bin", size)){
+        printf("\033[1;31m[AddrSpace] VM: Failed to create vm file: check permissions and your code\n\033[0m");
+        ASSERT(FALSE);
+    }
+    OpenFile *vm = fileSystem->Open("vm.bin");
+    
+    // init page table
+    for (i = 0; i < numPages; i++) {
+        pageTable[i].virtualPage = i;
+        pageTable[i].physicalPage = -1;  // [lab4] point to a invalid page
+        pageTable[i].valid = FALSE;  // [lab4] not valid
+        pageTable[i].use = FALSE;
+        pageTable[i].dirty = FALSE;
+        pageTable[i].readOnly = FALSE;  // if the code segment was entirely on 
+					// a separate page, we could set its 
+					// pages to be read-only
+    }
+    // [lab4] DEBUG
+    machine->printTE(pageTable, numPages);
+
+    // copy executable to file via buffer
+    char* buffer = new char[MemorySize];
+    if (noffH.code.size > 0) {
+        DEBUG('a', "Initializing code segment, at 0x%x, size %d\n", 
+			noffH.code.virtualAddr, noffH.code.size);
+        executable->ReadAt(&(buffer[noffH.code.virtualAddr]),
+			noffH.code.size, noffH.code.inFileAddr);
+        vm->WriteAt(&(buffer[noffH.code.virtualAddr]),
+			noffH.code.size, noffH.code.inFileAddr);
+    }
+    if (noffH.initData.size > 0) {
+        DEBUG('a', "Initializing data segment, at 0x%x, size %d\n", 
+			noffH.initData.virtualAddr, noffH.initData.size);
+        executable->ReadAt(&(buffer[noffH.initData.virtualAddr]),
+			noffH.initData.size, noffH.initData.inFileAddr);
+        vm->WriteAt(&(buffer[noffH.initData.virtualAddr]),
+			noffH.initData.size, noffH.initData.inFileAddr);
+    }
+
+    delete vm;
+
+#endif
 
 }
 
@@ -169,7 +244,15 @@ AddrSpace::InitRegisters()
 //----------------------------------------------------------------------
 
 void AddrSpace::SaveState() 
-{}
+{
+    // [lab4] if use tlb, then make tlb invalid
+# ifdef USE_TLB
+    DEBUG('T', "TLB -> invalid");
+    for (int i = 0; i < TLBSize; i++){
+        machine->tlb[i].valid = FALSE;
+    }
+# endif
+}
 
 //----------------------------------------------------------------------
 // AddrSpace::RestoreState
@@ -183,4 +266,61 @@ void AddrSpace::RestoreState()
 {
     machine->pageTable = pageTable;
     machine->pageTableSize = numPages;
+}
+
+// [lab4] MyWriteMem
+ExceptionType AddrSpace::writeWordToMem(int virtAddr, unsigned int data){
+    unsigned int vpn = (unsigned) virtAddr / PageSize;
+    unsigned int offset = (unsigned) virtAddr % PageSize;
+    unsigned int pageFrame = pageTable[vpn].physicalPage;
+    int physAddr = pageFrame * PageSize + offset;
+    DEBUG('w', "[writeWordToMem] %x -> vaddr=%x, phyaddr=%x\n", data, virtAddr, physAddr);
+    // Your word to memory
+    *(unsigned int *) &machine->mainMemory[physAddr] = data;
+    return NoException;
+}
+
+// [lab4] Write segment -> mainMemory (REVERSE ENDIAN)
+ExceptionType AddrSpace::writeSegmentToMem(Segment* data, OpenFile* executable){
+    DEBUG('w', "Initializing segment, at 0x%x, size %d\n", data->virtualAddr, data->size);
+    unsigned char *buffer = new unsigned char[5];
+    
+    // for(int i = 0; i < numPages; i++){
+    //     int size = PageSize;
+    //     if (data->size - numPages*i < PageSize) size = data->size;
+
+    //     unsigned int pageFrame = pageTable[i].physicalPage;
+    //     int physAddr = pageFrame * PageSize + offset;
+
+    //     executable->ReadAt(&(machine->mainMemory[noffH.initData.virtualAddr]),
+	// 		noffH.initData.size, noffH.initData.inFileAddr);
+    // }
+
+    for(int curr = 0; curr < data->size; curr += 4){
+        // read to buffer
+        executable->ReadAt(buffer, 4, data->inFileAddr + curr);
+        DEBUG('w', "[writeSegmentToMem] %x%x%x%x\n", buffer[3], buffer[2], buffer[1], buffer[0]);
+        // write data to buffer (REVERSE ENDIAN)
+        unsigned int yourdata = ((unsigned int)(buffer[3])) << 24;
+        yourdata |= ((unsigned int)(buffer[2])) << 16;
+        yourdata |= ((unsigned int)(buffer[1])) << 8;
+        yourdata |= (unsigned int)buffer[0];
+        writeWordToMem(data->virtualAddr + curr, yourdata);
+    }
+}
+
+ExceptionType AddrSpace::loadPageFromFile(OpenFile* file, int position, int vpn){
+    unsigned int pageFrame = pageTable[vpn].physicalPage;
+    int physAddr = pageFrame * PageSize;
+
+    // No need to check for size-position, ReadFile Already handled this
+    file->ReadAt(&(machine->mainMemory[physAddr]), PageSize, position);
+}
+
+ExceptionType AddrSpace::dumpPageToFile(OpenFile* file, int position, int vpn){
+    unsigned int pageFrame = pageTable[vpn].physicalPage;
+    int physAddr = pageFrame * PageSize;
+
+    // No need to check for size-position, WriteFile Already handled this
+    file->WriteAt(&(machine->mainMemory[physAddr]), PageSize, position);
 }

@@ -15,6 +15,7 @@
 
 #include "copyright.h"
 #include "filesys.h"
+#include "noff.h"
 
 #define UserStackSize		1024 	// increase this as necessary!
 
@@ -30,6 +31,12 @@ class AddrSpace {
 
     void SaveState();			// Save/restore address space-specific
     void RestoreState();		// info on a context switch 
+
+    ExceptionType writeWordToMem(int virtAddr, unsigned int data);
+    ExceptionType writeSegmentToMem(Segment* data, OpenFile* executable);
+
+    ExceptionType loadPageFromFile(OpenFile* file, int position, int vpn);
+    ExceptionType dumpPageToFile(OpenFile* file, int position, int vpn);
 
   private:
     TranslationEntry *pageTable;	// Assume linear page table translation

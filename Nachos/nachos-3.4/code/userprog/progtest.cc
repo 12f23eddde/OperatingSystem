@@ -8,6 +8,12 @@
 // All rights reserved.  See copyright.h for copyright notice and limitation 
 // of liability and disclaimer of warranty provisions.
 
+///// Just for hint /////
+///// comment when running /////
+// # define USER_PROGRAM
+// # define FILESYS_NEEDED
+
+
 #include "copyright.h"
 #include "system.h"
 #include "console.h"
@@ -20,6 +26,23 @@
 //	memory, and jump to it.
 //----------------------------------------------------------------------
 
+# define numInstances 2
+
+// [lab4] starting a userprog thread
+void RunSingleProcess(int threadNo){
+    DEBUG('u', "[RunSingleProcess] Starting user program %d\n",threadNo);
+    // load registers to machine
+    currentThread->space->InitRegisters();
+    // load page table to machine
+    currentThread->space->RestoreState();
+    // run!
+    machine->Run();
+    // Not Reached
+    printf("\033[1;31m[RunSingleProcess] Hit Buttom! \n\033[0m");
+    ASSERT(FALSE);
+}
+
+// [lab4] Modified to run multiple instances
 void
 StartProcess(char *filename)
 {
@@ -27,21 +50,32 @@ StartProcess(char *filename)
     AddrSpace *space;
 
     if (executable == NULL) {
-	printf("Unable to open file %s\n", filename);
-	return;
+	    printf("Unable to open file %s\n", filename);
+	    return;
     }
-    space = new AddrSpace(executable);    
-    currentThread->space = space;
 
-    delete executable;			// close file
+    Thread *t [10];
 
-    space->InitRegisters();		// set the initial register values
-    space->RestoreState();		// load page table register
+    for(int i = 1; i <= numInstances; i++){
+        t[i-1] = new Thread("userProg",i);
+        t[i-1]->space = new AddrSpace(executable);
+        machine->printMem();
+        t[i-1]->Fork(RunSingleProcess, (void*)i);
+    }
 
-    machine->Run();			// jump to the user progam
-    ASSERT(FALSE);			// machine->Run never returns;
-					// the address space exits
-					// by doing the syscall "exit"
+    // Preemution is disabled!
+    // Manually yield the thread
+    currentThread->Yield();
+
+    // delete executable;			// close file
+
+    // space->InitRegisters();		// set the initial register values
+    // space->RestoreState();		// load page table register
+
+    // machine->Run();			// jump to the user progam
+    // ASSERT(FALSE);			// machine->Run never returns;
+	// 				// the address space exits
+	// 				// by doing the syscall "exit"
 }
 
 // Data structures needed for the console test.  Threads making

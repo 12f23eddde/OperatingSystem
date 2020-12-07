@@ -182,6 +182,19 @@ class Machine {
     TranslationEntry *pageTable;
     unsigned int pageTableSize;
 
+	// [lab4] Metrics for TLB Replacement Performance
+	int TLBUsed;
+	int TLBMissed;
+	void printTE(TranslationEntry *pt, int size);
+	
+	// [lab4] bitmap with only 32bits -> unsigned int
+	// if you want to expand NPhyPages, it have to be altered
+	unsigned int bitmap;
+	int allocBit();
+	void freeBit(int n);
+	void freeAllMem();
+	void printMem();
+
   private:
     bool singleStep;		// drop back into the debugger after each
 				// simulated instruction

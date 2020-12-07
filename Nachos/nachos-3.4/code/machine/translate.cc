@@ -199,8 +199,9 @@ Machine::Translate(int virtAddr, int* physAddr, int size, bool writing)
 	return AddressErrorException;
     }
     
-    // we must have either a TLB or a page table, but not both!
-    ASSERT(tlb == NULL || pageTable == NULL);	
+	//////////    [lab4] Disabled for now    //////////    
+	// we must have either a TLB or a page table, but not both!
+    // ASSERT(tlb == NULL || pageTable == NULL);	
     ASSERT(tlb != NULL || pageTable != NULL);	
 
 // calculate the virtual page number, and offset within the page,
@@ -209,28 +210,31 @@ Machine::Translate(int virtAddr, int* physAddr, int size, bool writing)
     offset = (unsigned) virtAddr % PageSize;
     
     if (tlb == NULL) {		// => page table => vpn is index into table
-	if (vpn >= pageTableSize) {
-	    DEBUG('a', "virtual page # %d too large for page table size %d!\n", 
-			virtAddr, pageTableSize);
-	    return AddressErrorException;
-	} else if (!pageTable[vpn].valid) {
-	    DEBUG('a', "virtual page # %d too large for page table size %d!\n", 
-			virtAddr, pageTableSize);
-	    return PageFaultException;
-	}
-	entry = &pageTable[vpn];
-    } else {
+		if (vpn >= pageTableSize) {
+			DEBUG('a', "virtual page # %d too large for page table size %d!\n", 
+				virtAddr, pageTableSize);
+			return AddressErrorException;
+		} else if (!pageTable[vpn].valid) {
+			DEBUG('a', "virtual page # %d too large for page table size %d!\n", 
+				virtAddr, pageTableSize);
+			return PageFaultException;
+		}
+		entry = &pageTable[vpn];
+    } else {    // => tlb => search vpn in the page table
+		TLBUsed ++;
         for (entry = NULL, i = 0; i < TLBSize; i++)
     	    if (tlb[i].valid && (tlb[i].virtualPage == vpn)) {
-		entry = &tlb[i];			// FOUND!
-		break;
-	    }
-	if (entry == NULL) {				// not found
+				entry = &tlb[i];			// FOUND!
+				break;
+	    	}
+		if (entry == NULL) {				// not found
+			TLBMissed ++;
     	    DEBUG('a', "*** no valid TLB entry found for this virtual page!\n");
-    	    return PageFaultException;		// really, this is a TLB fault,
-						// the page may be in memory,
-						// but not in the TLB
-	}
+			DEBUG('T', "[TLB] (%d/%d) miss @ vaddr=%x vpn=%x offset=%x\n", TLBMissed, TLBUsed, virtAddr, vpn, offset);
+    	    return PageFaultException;		// TLB fault, the page may be in memory, but not in the TLB
+		} else {
+			DEBUG('T', "[TLB] (%d/%d) hit @ vaddr=%x vpn=%x offset=%x\n", TLBMissed, TLBUsed, virtAddr, vpn, offset);
+		}
     }
 
     if (entry->readOnly && writing) {	// trying to write to a read-only page

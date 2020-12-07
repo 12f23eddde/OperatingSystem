@@ -73,6 +73,13 @@ Machine::Machine(bool debug)
 
     singleStep = debug;
     CheckEndian();
+
+    // init metrics
+    TLBUsed = 0;
+    TLBMissed = 0;
+
+    // init bitmap
+    bitmap = 0;
 }
 
 //----------------------------------------------------------------------
@@ -212,3 +219,61 @@ void Machine::WriteRegister(int num, int value)
 	registers[num] = value;
     }
 
+// print tlb or pageTable
+void Machine::printTE(TranslationEntry *pt, int size){
+    if (size == TLBSize) printf("\033[1;36m");
+    else printf("\033[1;34m");
+    printf("%5s%6s%6s%4s%4s%4s%4s\n", "IND","VPN","PPN","VAL","RDO","USE","DIR");
+    for(int i = 0; i < size; i++){
+        printf(" %3d|%6x%6x%4d%4d%4d%4d\n", i, pt[i].virtualPage, pt[i].physicalPage, 
+            pt[i].valid, pt[i].readOnly, pt[i].use, pt[i].dirty);
+    }
+    printf("\033[0m");
+}
+
+// [lab4] alloc 1 bit in bitmap; return its its index
+int Machine::allocBit(){
+    // gcc builtin function __builtin_ffs: 
+    // return the index of last significant bit (starts from 1)
+    // Credit: https://blog.csdn.net/jasonchen_gbd/article/details/44948523
+    int shift = __builtin_ffs(~bitmap) - 1;  
+    if (shift < 0){
+        DEBUG('M', "[allocBit] bitmap already full %d (%x)\n", shift, bitmap);
+        return -1;
+    }
+    bitmap |= 0x1 << shift;
+    DEBUG('M', "[allocBit] allocate bit %d -> %x\n", shift, bitmap);
+    return shift;
+}
+
+// [lab4] free 1 bit in bitmap
+void Machine::freeBit(int shift){
+    bitmap &= ~(0x1 << shift);
+    DEBUG('M', "[allocBit] free bit %d -> %x\n", shift, bitmap);
+}
+
+// [lab4] free all memory in page table
+void Machine::freeAllMem(){
+    DEBUG('M', "[freeAllMem] freeing all entries in pageTable for current Thread\n");
+    for(int i = 0; i < pageTableSize; i++){
+        if(pageTable[i].valid){
+            int pageToFree = pageTable[i].physicalPage;
+            freeBit(pageToFree);  // set bitmap
+            pageTable[i].valid = FALSE;  // set valid
+        }
+    }
+    printTE(pageTable, pageTableSize);
+}
+
+void Machine::printMem(){
+    printf("\033[1;32m");
+    for(int i = 0; i < NumPhysPages; i++){
+        printf("Page%-2d| ", i);
+        for (int j = 0; j < PageSize; j++){
+            printf("%2x", (unsigned char)(mainMemory[i*PageSize+j]));
+            if (j == PageSize/2 - 1) printf("\nPage%-2d| ", i);
+        }
+        printf("\n");
+    }
+    printf("\033[0m");
+}
