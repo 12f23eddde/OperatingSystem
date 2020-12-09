@@ -185,6 +185,13 @@ void handleTLBMiss(unsigned int virtAddr){
     // Check if we got an actual page fault
     if (!machine->pageTable[vpn].valid) handlePageFault(vpn);
     
+    // // write back replaced TLB entry
+    // if (machine->tlb[TLBToReplace].valid) {
+    //     int oldVPN = machine->tlb[TLBToReplace].virtualPage;
+    //     DEBUG('V', "[handleTLBMiss] write back tlb[%d]", oldVPN);
+    //     machine->pageTable[vpn] = machine->tlb[TLBToReplace];
+    // }
+
     // update TLB entry
     machine->tlb[TLBToReplace] = machine->pageTable[vpn];
 
