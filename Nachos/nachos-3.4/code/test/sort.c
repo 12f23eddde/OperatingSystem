@@ -12,7 +12,7 @@
 ////////   [lab4] Modified to keep it under memory constraints    /////////
 ////////          change the value of N to scale up / down        /////////
 
-# define N 10
+# define N 256
 
 int A[N];	/* size of physical memory; with code, we'll run out of space!*/
 
@@ -33,6 +33,8 @@ main()
 	      A[j] = A[j + 1];
 	      A[j + 1] = tmp;
     }
+
+    Yield();
     // Halt();
     Exit(A[0]);		/* and then we're done -- should be 0! */
 }

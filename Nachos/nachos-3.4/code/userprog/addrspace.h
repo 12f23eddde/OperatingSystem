@@ -21,7 +21,7 @@
 
 class AddrSpace {
   public:
-    AddrSpace(OpenFile *executable);	// Create an address space,
+    AddrSpace(OpenFile *executable, int count=1);	// Create an address space,
 					// initializing it with the program
 					// stored in the file "executable"
     ~AddrSpace();			// De-allocate an address space
@@ -35,8 +35,11 @@ class AddrSpace {
     ExceptionType writeWordToMem(int virtAddr, unsigned int data);
     ExceptionType writeSegmentToMem(Segment* data, OpenFile* executable);
 
-    ExceptionType loadPageFromFile(OpenFile* file, int position, int vpn);
-    ExceptionType dumpPageToFile(OpenFile* file, int position, int vpn);
+    ExceptionType loadPageFromVM(int vpn);
+    ExceptionType dumpPageToVM(int vpn);
+    
+    // [lab4]
+    OpenFile *vm;
 
   private:
     TranslationEntry *pageTable;	// Assume linear page table translation

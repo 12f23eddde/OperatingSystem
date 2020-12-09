@@ -58,6 +58,74 @@
 //////////    [lab4] Just for now   //////////  
 int TLBToCheck = 0;
 
+// [lab4] Real Page Fault
+void handlePageFault(unsigned int vpn){
+    DEBUG('V', "[handlePageFault] vpn=%d\n", vpn);
+
+    // PPN might not exist; require a new page
+    int newPPN = machine->allocBit();
+
+    // if (newPPN == -1){
+    //      printf("\033[1;31m[handlePageFault] Not Implemented @vpn=%d\n\033[0m", vpn);
+    //      ASSERT(FALSE);
+    // }
+
+    // machine->printTE(machine->pageTable, machine->pageTableSize);
+
+    if(newPPN >= 0) DEBUG('V', "[handlePageFault] Found available ppn=%d\n", newPPN);
+
+    if (newPPN == -1) {  // all physical page used up,,,
+        for (int i = 0; i < machine->pageTableSize, i!=vpn; i++){
+            // if(i == vpn) continue;
+            if(machine->pageTable[i].valid && !machine->pageTable[i].dirty){
+                DEBUG('V', "[handlePageFault] Found non-dirty vpn=%d ppn=%d\n", i, machine->pageTable[i].physicalPage);
+                machine->pageTable[i].valid = FALSE;  // Declared!
+                newPPN = machine->pageTable[i].physicalPage;  // It's Mine!
+                break;
+            }
+        }
+    }
+
+    if (newPPN == -1) {  // all physical pages written,,,
+        for (int i = 0; i < machine->pageTableSize, i!=vpn; i++){
+            // if(i == vpn) continue;
+            if(machine->pageTable[i].valid && machine->pageTable[i].dirty){
+                DEBUG('V', "[handlePageFault] Found dirty vpn=%d ppn=%d\n", i, machine->pageTable[i].physicalPage);
+                currentThread->space->dumpPageToVM(i);  // Written, need to write back
+                machine->pageTable[i].valid = FALSE;  // Declared!
+                newPPN = machine->pageTable[i].physicalPage;  // It's Mine!
+                break;
+            }
+        }
+    }
+
+    if (newPPN == -1) {  // wtf,,,
+        // DEBUG
+        printf("\033[1;31m[handlePageFault] No valid entry found, but somehow mem went full. Switching to other threads\n");
+        machine->printTE(machine->pageTable, machine->pageTableSize);
+        // ASSERT(FALSE);
+        // Don't load, wait for other threads to finish then try again
+        currentThread->Yield();
+        return;  
+    }
+
+    // submit our result
+    machine->pageTable[vpn].physicalPage = newPPN;
+    machine->pageTable[vpn].valid = TRUE;
+    machine->pageTable[vpn].use = FALSE;
+    machine->pageTable[vpn].dirty = FALSE;
+    machine->pageTable[vpn].readOnly = FALSE;
+
+    // [lab4] Hack: our vm is as big as AddrSpace
+    // load it from vm = create a new page
+    // load page / create new
+    if(currentThread->space->loadPageFromVM(vpn) != NoException){
+        printf("\033[1;31m[handlePageFault] failed loading page @vpn=%d\n\033[0m", vpn);
+    }
+
+    DEBUG('V', "[handlePageFault] Finished! ppn=%d\n", newPPN);
+}
+
 // nextPC = PC in this case
 void handleTLBMiss(unsigned int virtAddr){
     unsigned int vpn = (unsigned) virtAddr / PageSize;
@@ -113,8 +181,14 @@ void handleTLBMiss(unsigned int virtAddr){
         printf("\033[1;31m[handleTLBMiss] invalid TLB entry to replace %d\n\033[0m", TLBToReplace);
         ASSERT(FALSE);
     }
+
+    // Check if we got an actual page fault
+    if (!machine->pageTable[vpn].valid) handlePageFault(vpn);
+    
     // update TLB entry
     machine->tlb[TLBToReplace] = machine->pageTable[vpn];
+
+    // Final Check
     if (machine->tlb[TLBToReplace].virtualPage < 0 || machine->tlb[TLBToReplace].virtualPage >= NumPhysPages){
         printf("\033[1;31m[handleTLBMiss] You are trying to insert invalid item %x\n\033[0m", machine->tlb[TLBToReplace].virtualPage);
         ASSERT(FALSE);
@@ -122,15 +196,8 @@ void handleTLBMiss(unsigned int virtAddr){
 }
 
 void printTLBMisses(){
-    printf("[TLB] Miss Rate=%.2f% (%d/%d), Miss at:\n[", 
+    printf("[TLB] Miss Rate=%.2f% (%d/%d)", 
         (100*machine->TLBMissed)/(float)machine->TLBUsed, machine->TLBMissed, machine->TLBUsed);
-    // for(int i = 0; i < 1024; i++){
-    //     if(machine->TLBMisses[i] >= 0){
-    //         printf("%d, ", machine->TLBMisses[i]);
-    //     }
-    //     if (i % 20 == 19) printf("\n");
-    // }
-    // printf("]\n");
 }
 
 void ExceptionHandler(ExceptionType which){
@@ -140,21 +207,36 @@ void ExceptionHandler(ExceptionType which){
     switch (which){
         case SyscallException:{
             if (type == SC_Halt) {
+                printf("\033[1;33m[Halt] Halt from %s\n\033[0m", currentThread->getName());
                 printTLBMisses();
-                printf("\033[1;33m[Halt] Halt from user program\n\033[0m");
                 interrupt->Halt();
-            }else if (type==SC_Exit){
+            }else if (type == SC_Exit){
+                printf("\033[1;33m[Exit] Exit from %s\n\033[0m", currentThread->getName());
                 #ifdef USER_PROGRAM
-                    printf("\033[1;33m[Exit] Exit from user program\n\033[0m");
+                    // DEBUG
+                    // if(type!=0) ASSERT(FALSE);
+
                     // free everything in current thread's address space
                     if (currentThread->space != NULL) {
                         machine->freeAllMem(); 
                         delete currentThread->space;
                         currentThread->space = NULL;
                     }
-                    machine->printMem();
+                    machine->printMem(machine->mainMemory);
                 #endif
                 currentThread->Finish(); // Finish current thread
+            }else if (type == SC_Yield){
+                printf("\033[1;33m[Yield] Yield from %s\n\033[0m", currentThread->getName());
+                #ifdef USER_PROGRAM
+                    machine->printTE(machine->pageTable, machine->pageTableSize);
+                    machine->printMem(machine->mainMemory);
+                #endif
+
+                // increase PC
+                int nextPC = machine->ReadRegister(NextPCReg);
+                machine->WriteRegister(PCReg, nextPC);
+
+                currentThread->Yield(); // Yield current thread
             }
         }
         break;

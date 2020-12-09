@@ -17,9 +17,10 @@
 
 ////// enable code hint  //////
 ////// comment when testing //////
-#define USE_VM
-#define FILESYS_NEEDED
-#define USER_PROGRAM
+// #define USE_VM
+// #define FILESYS_NEEDED
+// #define USER_PROGRAM
+// #define MULTITHREAD_SUPPORT
 
 #include "copyright.h"
 #include "system.h"
@@ -65,7 +66,7 @@ SwapHeader (NoffHeader *noffH)
 //	"executable" is the file containing the object code to load into memory
 //----------------------------------------------------------------------
 
-AddrSpace::AddrSpace(OpenFile *executable)
+AddrSpace::AddrSpace(OpenFile *executable, int count=1)
 {
     NoffHeader noffH;
     unsigned int i, size;
@@ -121,12 +122,9 @@ AddrSpace::AddrSpace(OpenFile *executable)
     // [lab4] DEBUG
     machine->printTE(pageTable, numPages);
 
-   
-
 // then, copy in the code and data segments into memory
 
 # ifdef MULTITHREAD_SUPPORT
-    // [lab4] init Addrspace with real vaddr
     writeSegmentToMem(&(noffH.code), executable);
     writeSegmentToMem(&(noffH.initData), executable);
 # else
@@ -147,14 +145,29 @@ AddrSpace::AddrSpace(OpenFile *executable)
 #else
 // [lab4] USING VM
     // get vm file ready
-    DEBUG('a', "[AddrSpace] VM: Creating vm file\n");
-    if(!fileSystem->Create("vm.bin", size)){
-        printf("\033[1;31m[AddrSpace] VM: Failed to create vm file: check permissions and your code\n\033[0m");
+    char name[10];
+    name[0] = (char)(count + '0');
+    strcat(name, "-vm.bin");
+
+    // remove file if exists
+    fileSystem->Remove(name);
+    // try to create file (size=AddrSpace)
+    if(!fileSystem->Create(name, MemorySize)){
+        printf("\033[1;31m[AddrSpace] VM: Failed to create %s: check permissions and your code\n\033[0m", name);
         ASSERT(FALSE);
     }
-    OpenFile *vm = fileSystem->Open("vm.bin");
+    
+    // open vm file
+    if(!(vm = fileSystem->Open(name))){
+        printf("\033[1;31m[AddrSpace] VM: Failed to open %s: check permissions and your code\n\033[0m", name);
+        ASSERT(FALSE);
+    }
+
+    DEBUG('V', "[AddrSpace] VM: Created vm file %s\n", name);
     
     // init page table
+    // !!! valid -> in mem !!!
+    // !!! invalid -> in vm !!!
     for (i = 0; i < numPages; i++) {
         pageTable[i].virtualPage = i;
         pageTable[i].physicalPage = -1;  // [lab4] point to a invalid page
@@ -165,29 +178,31 @@ AddrSpace::AddrSpace(OpenFile *executable)
 					// a separate page, we could set its 
 					// pages to be read-only
     }
-    // [lab4] DEBUG
-    machine->printTE(pageTable, numPages);
 
-    // copy executable to file via buffer
-    char* buffer = new char[MemorySize];
+    // [lab4] Make vm file a new AddrSpace
+    char *buffer = new char[MemorySize];
+    bzero (buffer, MemorySize);
+
     if (noffH.code.size > 0) {
-        DEBUG('a', "Initializing code segment, at 0x%x, size %d\n", 
+        DEBUG('V', "Initializing code segment, at 0x%x, size %d\n", 
 			noffH.code.virtualAddr, noffH.code.size);
         executable->ReadAt(&(buffer[noffH.code.virtualAddr]),
 			noffH.code.size, noffH.code.inFileAddr);
-        vm->WriteAt(&(buffer[noffH.code.virtualAddr]),
-			noffH.code.size, noffH.code.inFileAddr);
     }
+
     if (noffH.initData.size > 0) {
-        DEBUG('a', "Initializing data segment, at 0x%x, size %d\n", 
+        DEBUG('V', "Initializing data segment, at 0x%x, size %d\n", 
 			noffH.initData.virtualAddr, noffH.initData.size);
         executable->ReadAt(&(buffer[noffH.initData.virtualAddr]),
 			noffH.initData.size, noffH.initData.inFileAddr);
-        vm->WriteAt(&(buffer[noffH.initData.virtualAddr]),
-			noffH.initData.size, noffH.initData.inFileAddr);
     }
 
-    delete vm;
+    // [DEBUG]
+    // machine->printMem(buffer);
+    machine->printTE(pageTable, numPages);
+
+    // dump temp mem -> vm
+    vm->WriteAt(buffer, MemorySize, 0);    
 
 #endif
 
@@ -200,7 +215,8 @@ AddrSpace::AddrSpace(OpenFile *executable)
 
 AddrSpace::~AddrSpace()
 {
-   delete pageTable;
+    delete vm;  // close file here
+    delete pageTable;
 }
 
 //----------------------------------------------------------------------
@@ -284,17 +300,6 @@ ExceptionType AddrSpace::writeWordToMem(int virtAddr, unsigned int data){
 ExceptionType AddrSpace::writeSegmentToMem(Segment* data, OpenFile* executable){
     DEBUG('w', "Initializing segment, at 0x%x, size %d\n", data->virtualAddr, data->size);
     unsigned char *buffer = new unsigned char[5];
-    
-    // for(int i = 0; i < numPages; i++){
-    //     int size = PageSize;
-    //     if (data->size - numPages*i < PageSize) size = data->size;
-
-    //     unsigned int pageFrame = pageTable[i].physicalPage;
-    //     int physAddr = pageFrame * PageSize + offset;
-
-    //     executable->ReadAt(&(machine->mainMemory[noffH.initData.virtualAddr]),
-	// 		noffH.initData.size, noffH.initData.inFileAddr);
-    // }
 
     for(int curr = 0; curr < data->size; curr += 4){
         // read to buffer
@@ -309,18 +314,47 @@ ExceptionType AddrSpace::writeSegmentToMem(Segment* data, OpenFile* executable){
     }
 }
 
-ExceptionType AddrSpace::loadPageFromFile(OpenFile* file, int position, int vpn){
-    unsigned int pageFrame = pageTable[vpn].physicalPage;
+ExceptionType AddrSpace::loadPageFromVM(int vpn){
+    int pageFrame = pageTable[vpn].physicalPage;
     int physAddr = pageFrame * PageSize;
+    int position = vpn * PageSize;
+
+    DEBUG('V',"[loadPageFromVM] Loading vpn=%d ppn=%d from vm\n", vpn, pageFrame);
+    
+
+    // avoid ReadAt from crashing memory
+    if (physAddr < 0 || physAddr > MemorySize - PageSize){
+        printf("\033[1;31m[loadPageFromVM] invalid physAddr %x\n\033[0m", physAddr);
+        return AddressErrorException;
+    }
 
     // No need to check for size-position, ReadFile Already handled this
-    file->ReadAt(&(machine->mainMemory[physAddr]), PageSize, position);
+    vm->ReadAt(&(machine->mainMemory[physAddr]), PageSize, position);
+
+    // mark it valid (machine->pageTable = pageTable)
+    // pageTable[vpn].valid = TRUE;
+
+    return NoException;
 }
 
-ExceptionType AddrSpace::dumpPageToFile(OpenFile* file, int position, int vpn){
+ExceptionType AddrSpace::dumpPageToVM(int vpn){
+    if (!pageTable[vpn].valid) DEBUG('V',"[dumpPageToVM] You are trying to dump invalid vpage %d\n", vpn);
+
     unsigned int pageFrame = pageTable[vpn].physicalPage;
     int physAddr = pageFrame * PageSize;
+    int position = vpn * PageSize;
+
+    // avoid ReadAt from crashing memory
+    if (physAddr < 0 || physAddr > MemorySize - PageSize){
+        printf("\033[1;31m[loadPageFromVM] invalid physAddr %x\n\033[0m", physAddr);
+        return AddressErrorException;
+    }
 
     // No need to check for size-position, WriteFile Already handled this
-    file->WriteAt(&(machine->mainMemory[physAddr]), PageSize, position);
+    vm->WriteAt(&(machine->mainMemory[physAddr]), PageSize, position);
+
+    // mark it valid (machine->pageTable = pageTable)
+    // pageTable[vpn].valid = FALSE;
+
+    return NoException;
 }

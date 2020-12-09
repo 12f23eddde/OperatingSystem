@@ -255,6 +255,7 @@ void Machine::freeBit(int shift){
 // [lab4] free all memory in page table
 void Machine::freeAllMem(){
     DEBUG('M', "[freeAllMem] freeing all entries in pageTable for current Thread\n");
+    printTE(pageTable, pageTableSize);
     for(int i = 0; i < pageTableSize; i++){
         if(pageTable[i].valid){
             int pageToFree = pageTable[i].physicalPage;
@@ -262,15 +263,15 @@ void Machine::freeAllMem(){
             pageTable[i].valid = FALSE;  // set valid
         }
     }
-    printTE(pageTable, pageTableSize);
 }
 
-void Machine::printMem(){
-    printf("\033[1;32m");
+void Machine::printMem(char* mem){
+    if (mem == mainMemory) printf("\033[1;35m[printMem] print main memory\n");  // change color when printing mainMemory
+    else printf("[printMem] print general buffer\n"); 
     for(int i = 0; i < NumPhysPages; i++){
         printf("Page%-2d| ", i);
         for (int j = 0; j < PageSize; j++){
-            printf("%2x", (unsigned char)(mainMemory[i*PageSize+j]));
+            printf("%2x", (unsigned char)(mem[i*PageSize+j]));
             if (j == PageSize/2 - 1) printf("\nPage%-2d| ", i);
         }
         printf("\n");

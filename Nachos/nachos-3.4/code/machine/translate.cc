@@ -143,6 +143,10 @@ Machine::WriteMem(int addr, int size, int value)
     DEBUG('a', "Writing VA 0x%x, size %d, value 0x%x\n", addr, size, value);
 
     exception = Translate(addr, &physicalAddress, size, TRUE);
+
+	// debug
+	printTE(machine->pageTable, machine->pageTableSize);
+
     if (exception != NoException) {
 	machine->RaiseException(exception, addr);
 	return FALSE;

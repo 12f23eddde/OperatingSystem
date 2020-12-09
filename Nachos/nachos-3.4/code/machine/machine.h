@@ -193,7 +193,7 @@ class Machine {
 	int allocBit();
 	void freeBit(int n);
 	void freeAllMem();
-	void printMem();
+	void printMem(char* mem);
 
   private:
     bool singleStep;		// drop back into the debugger after each

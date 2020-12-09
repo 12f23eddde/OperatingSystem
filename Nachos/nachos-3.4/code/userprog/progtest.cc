@@ -26,11 +26,11 @@
 //	memory, and jump to it.
 //----------------------------------------------------------------------
 
-# define numInstances 2
+# define numInstances 3
 
 // [lab4] starting a userprog thread
 void RunSingleProcess(int threadNo){
-    DEBUG('u', "[RunSingleProcess] Starting user program %d\n",threadNo);
+    DEBUG('u', "\033[1;33m[RunSingleProcess] Starting %d-userProg\033[0m\n",threadNo);
     // load registers to machine
     currentThread->space->InitRegisters();
     // load page table to machine
@@ -57,9 +57,12 @@ StartProcess(char *filename)
     Thread *t [10];
 
     for(int i = 1; i <= numInstances; i++){
-        t[i-1] = new Thread("userProg",i);
-        t[i-1]->space = new AddrSpace(executable);
-        machine->printMem();
+        char* name = new char[10];
+        name[0] = (char)(i + '0');
+        strcat(name, "-userProg");
+        t[i-1] = new Thread(name, i);
+        t[i-1]->space = new AddrSpace(executable, i);
+        machine->printMem(machine->mainMemory);
         t[i-1]->Fork(RunSingleProcess, (void*)i);
     }
 
