@@ -26,7 +26,7 @@
 //	memory, and jump to it.
 //----------------------------------------------------------------------
 
-# define numInstances 3
+# define numInstances 1
 
 // [lab4] starting a userprog thread
 void RunSingleProcess(int threadNo){

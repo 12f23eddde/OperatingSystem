@@ -10,7 +10,7 @@
 # of liability and disclaimer of warranty provisions.
 
 ##########   [lab4] Use TLB   ##########   
-DEFINES = -DUSER_PROGRAM -DFILESYS_NEEDED -DFILESYS_STUB -DUSE_TLB -DUSE_FIFO -DMULTITHREAD_SUPPORT -DUSE_VM
+DEFINES = -DUSER_PROGRAM -DFILESYS_NEEDED -DFILESYS_STUB -DREV_PAGETABLE
 INCPATH = -I../bin -I../filesys -I../userprog -I../threads -I../machine
 HFILES = $(THREAD_H) $(USERPROG_H)
 CFILES = $(THREAD_C) $(USERPROG_C)

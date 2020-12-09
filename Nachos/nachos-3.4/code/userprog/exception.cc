@@ -62,6 +62,10 @@ int TLBToCheck = 0;
 void handlePageFault(unsigned int vpn){
     DEBUG('V', "[handlePageFault] vpn=%d\n", vpn);
 
+    if (vpn >= machine->pageTableSize){
+         printf("\033[1;31m[handlePageFault] Invalid vpn=%d/%d\n", vpn, machine->pageTableSize);
+    }
+
     // PPN might not exist; require a new page
     int newPPN = machine->allocBit();
 
@@ -75,10 +79,21 @@ void handlePageFault(unsigned int vpn){
     if(newPPN >= 0) DEBUG('V', "[handlePageFault] Found available ppn=%d\n", newPPN);
 
     if (newPPN == -1) {  // all physical page used up,,,
-        for (int i = 0; i < machine->pageTableSize, i!=vpn; i++){
-            // if(i == vpn) continue;
+        for (int i = 0; i < machine->pageTableSize; i++){
+            if(i == vpn) continue;
             if(machine->pageTable[i].valid && !machine->pageTable[i].dirty){
                 DEBUG('V', "[handlePageFault] Found non-dirty vpn=%d ppn=%d\n", i, machine->pageTable[i].physicalPage);
+                
+                // since Translate() only checks TLB, you have to manully sync it
+                #ifdef USE_TLB
+                for (int j = 0; j < TLBSize; j++){
+                    if (machine->tlb[j].valid && (machine->tlb[j].virtualPage == i)) {
+                        machine->tlb[j].valid = FALSE;		// FOUND!
+                        break;
+                    }
+                }
+                #endif
+
                 machine->pageTable[i].valid = FALSE;  // Declared!
                 newPPN = machine->pageTable[i].physicalPage;  // It's Mine!
                 break;
@@ -87,10 +102,21 @@ void handlePageFault(unsigned int vpn){
     }
 
     if (newPPN == -1) {  // all physical pages written,,,
-        for (int i = 0; i < machine->pageTableSize, i!=vpn; i++){
-            // if(i == vpn) continue;
+        for (int i = 0; i < machine->pageTableSize; i++){
+            if(i == vpn) continue;
             if(machine->pageTable[i].valid && machine->pageTable[i].dirty){
                 DEBUG('V', "[handlePageFault] Found dirty vpn=%d ppn=%d\n", i, machine->pageTable[i].physicalPage);
+                
+                // since Translate() only checks TLB, you have to manully sync it
+                #ifdef USE_TLB
+                for (int j = 0; j < TLBSize; j++){
+                    if (machine->tlb[j].valid && (machine->tlb[j].virtualPage == i)) {
+                        machine->tlb[j].valid = FALSE;		// FOUND!
+                        break;
+                    }
+                }
+                #endif
+                
                 currentThread->space->dumpPageToVM(i);  // Written, need to write back
                 machine->pageTable[i].valid = FALSE;  // Declared!
                 newPPN = machine->pageTable[i].physicalPage;  // It's Mine!
@@ -122,8 +148,6 @@ void handlePageFault(unsigned int vpn){
     if(currentThread->space->loadPageFromVM(vpn) != NoException){
         printf("\033[1;31m[handlePageFault] failed loading page @vpn=%d\n\033[0m", vpn);
     }
-
-    DEBUG('V', "[handlePageFault] Finished! ppn=%d\n", newPPN);
 }
 
 // nextPC = PC in this case
@@ -220,8 +244,6 @@ void ExceptionHandler(ExceptionType which){
             }else if (type == SC_Exit){
                 printf("\033[1;33m[Exit] Exit from %s\n\033[0m", currentThread->getName());
                 #ifdef USER_PROGRAM
-                    // DEBUG
-                    // if(type!=0) ASSERT(FALSE);
 
                     // free everything in current thread's address space
                     if (currentThread->space != NULL) {

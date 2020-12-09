@@ -39,7 +39,9 @@ class AddrSpace {
     ExceptionType dumpPageToVM(int vpn);
     
     // [lab4]
-    OpenFile *vm;
+    char* vmname;
+
+    OpenFile* vm;
 
   private:
     TranslationEntry *pageTable;	// Assume linear page table translation

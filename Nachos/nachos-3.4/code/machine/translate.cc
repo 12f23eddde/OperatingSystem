@@ -220,6 +220,17 @@ Machine::Translate(int virtAddr, int* physAddr, int size, bool writing)
 				virtAddr, pageTableSize);
 			return PageFaultException;
 		}
+		# ifdef REV_PAGETABLE
+			if (pageTable[vpn].tid != currentThread->getThreadId()){
+				if (pageTable[vpn].tid == -1){  // unused PPN
+					pageTable[vpn].tid = currentThread->getThreadId();
+				}else{
+					DEBUG('R', "PPN %d owned by %d, however accessed by %d\n", vpn, pageTable[vpn].tid, currentThread->getThreadId());
+					ASSERT(FALSE);  // might be soon
+					return AddressErrorException;
+				}
+			}
+		# endif
 		entry = &pageTable[vpn];
     } else {    // => tlb => search vpn in the page table
 		TLBUsed ++;

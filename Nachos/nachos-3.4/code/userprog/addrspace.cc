@@ -21,6 +21,7 @@
 // #define FILESYS_NEEDED
 // #define USER_PROGRAM
 // #define MULTITHREAD_SUPPORT
+// # define REV_PAGETABLE
 
 #include "copyright.h"
 #include "system.h"
@@ -81,7 +82,12 @@ AddrSpace::AddrSpace(OpenFile *executable, int count=1)
     size = noffH.code.size + noffH.initData.size + noffH.uninitData.size 
 			+ UserStackSize;	// we need to increase the size
 						// to leave room for the stack
-    numPages = divRoundUp(size, PageSize);
+   
+    # ifndef REV_PAGETABLE
+        numPages = divRoundUp(size, PageSize);
+    # else
+        numPages = NumPhysPages;
+    # endif
     size = numPages * PageSize;
 
     // check size of exectable
@@ -112,6 +118,9 @@ AddrSpace::AddrSpace(OpenFile *executable, int count=1)
         pageTable[i].readOnly = FALSE;  // if the code segment was entirely on 
 					// a separate page, we could set its 
 					// pages to be read-only
+        # ifdef REV_PAGETABLE
+            pageTable[i].tid = -1;
+        # endif
         
         // [lab4] Check for errors
         if (pageTable[i].physicalPage < 0 || pageTable[i].physicalPage >= NumPhysPages){
@@ -145,25 +154,26 @@ AddrSpace::AddrSpace(OpenFile *executable, int count=1)
 #else
 // [lab4] USING VM
     // get vm file ready
-    char name[10];
-    name[0] = (char)(count + '0');
-    strcat(name, "-vm.bin");
+    vmname = new char[10];
+    vmname[0] = (char)(count + '0');
+    strcat(vmname, "-vm.bin");
 
     // remove file if exists
-    fileSystem->Remove(name);
+    fileSystem->Remove(vmname);
     // try to create file (size=AddrSpace)
-    if(!fileSystem->Create(name, MemorySize)){
-        printf("\033[1;31m[AddrSpace] VM: Failed to create %s: check permissions and your code\n\033[0m", name);
+    if(!fileSystem->Create(vmname, MemorySize)){
+        printf("\033[1;31m[AddrSpace] VM: Failed to create %s: check permissions and your code\n\033[0m", vmname);
         ASSERT(FALSE);
     }
     
     // open vm file
-    if(!(vm = fileSystem->Open(name))){
-        printf("\033[1;31m[AddrSpace] VM: Failed to open %s: check permissions and your code\n\033[0m", name);
+    // OpenFile* vm;
+    if(!(vm = fileSystem->Open(vmname))){
+        printf("\033[1;31m[AddrSpace] VM: Failed to open %s: check permissions and your code\n\033[0m", vmname);
         ASSERT(FALSE);
     }
 
-    DEBUG('V', "[AddrSpace] VM: Created vm file %s\n", name);
+    DEBUG('V', "[AddrSpace] VM: Created vm file %s\n", vmname);
     
     // init page table
     // !!! valid -> in mem !!!
@@ -204,6 +214,8 @@ AddrSpace::AddrSpace(OpenFile *executable, int count=1)
     // dump temp mem -> vm
     vm->WriteAt(buffer, MemorySize, 0);    
 
+    // delete vm;
+
 #endif
 
 }
@@ -215,7 +227,7 @@ AddrSpace::AddrSpace(OpenFile *executable, int count=1)
 
 AddrSpace::~AddrSpace()
 {
-    delete vm;  // close file here
+    delete vm;
     delete pageTable;
 }
 
@@ -315,12 +327,16 @@ ExceptionType AddrSpace::writeSegmentToMem(Segment* data, OpenFile* executable){
 }
 
 ExceptionType AddrSpace::loadPageFromVM(int vpn){
+
+    // OpenFile *vm = fileSystem->Open(vmname);
+
+    // ASSERT(vm != NULL);
+
     int pageFrame = pageTable[vpn].physicalPage;
     int physAddr = pageFrame * PageSize;
     int position = vpn * PageSize;
 
     DEBUG('V',"[loadPageFromVM] Loading vpn=%d ppn=%d from vm\n", vpn, pageFrame);
-    
 
     // avoid ReadAt from crashing memory
     if (physAddr < 0 || physAddr > MemorySize - PageSize){
@@ -329,16 +345,24 @@ ExceptionType AddrSpace::loadPageFromVM(int vpn){
     }
 
     // No need to check for size-position, ReadFile Already handled this
-    vm->ReadAt(&(machine->mainMemory[physAddr]), PageSize, position);
+    int retVal=vm->ReadAt(&(machine->mainMemory[physAddr]), PageSize, position);
+
+    DEBUG('V', "[loadPageFromVM] vmname=%s position %d/%d (%d) \n", vmname, position, vm->Length(), retVal);
 
     // mark it valid (machine->pageTable = pageTable)
     // pageTable[vpn].valid = TRUE;
+
+    // delete vm;
 
     return NoException;
 }
 
 ExceptionType AddrSpace::dumpPageToVM(int vpn){
     if (!pageTable[vpn].valid) DEBUG('V',"[dumpPageToVM] You are trying to dump invalid vpage %d\n", vpn);
+
+    // OpenFile *vm = fileSystem->Open(vmname);
+
+    // ASSERT(vm != NULL);
 
     unsigned int pageFrame = pageTable[vpn].physicalPage;
     int physAddr = pageFrame * PageSize;
@@ -355,6 +379,8 @@ ExceptionType AddrSpace::dumpPageToVM(int vpn){
 
     // mark it valid (machine->pageTable = pageTable)
     // pageTable[vpn].valid = FALSE;
+
+    // delete vm;
 
     return NoException;
 }

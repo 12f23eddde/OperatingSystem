@@ -223,6 +223,7 @@ void
 Lseek(int fd, int offset, int whence)
 {
     int retVal = lseek(fd, offset, whence);
+    if (retVal < 0) DEBUG('f', "[Lseek] Error %d(%d)\n", retVal, errno);
     ASSERT(retVal >= 0);
 }
 

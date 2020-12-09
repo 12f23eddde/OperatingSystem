@@ -40,6 +40,9 @@ class TranslationEntry {
 			// page is referenced or modified.
     bool dirty;         // This bit is set by the hardware every time the
 			// page is modified.
+    #ifdef REV_PAGETABLE
+    int tid;  // the thread holding this entry
+    #endif
 };
 
 #endif
