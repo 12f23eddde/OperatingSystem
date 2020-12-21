@@ -59,7 +59,7 @@ FileHeader::Allocate(BitMap *freeMap, int fileSize) {
     // dataSectors[NumDirect - 2]: indirect indexing
     if(remainedSectors > 0){
         // alloc sector from disk
-        auto* idt = new IndirectTable;
+        IndirectTable * idt = new IndirectTable;
         int idtSector;
         if ((idtSector = freeMap->Find()) == -1) return FALSE;  // no more space
         dataSectors[NumDirect - 2] = idtSector;
@@ -75,7 +75,7 @@ FileHeader::Allocate(BitMap *freeMap, int fileSize) {
     // dataSectors[NumDirect - 1]: indirect indexing
     if(remainedSectors > 0){
         // alloc sector from disk
-        auto* idt = new IndirectTable;
+        IndirectTable * idt = new IndirectTable;
         int idtSector;
         if ((idtSector = freeMap->Find()) == -1) return FALSE;  // no more space
         dataSectors[NumDirect - 1] = idtSector;
@@ -87,7 +87,10 @@ FileHeader::Allocate(BitMap *freeMap, int fileSize) {
         // write changes to disk
         WriteBack(idtSector, (char*) idt);
     }
-
+    if (remainedSectors > 0){
+        printf("\033[31m[Create] Size %d (Sectors %d) exceeds max limit/\n\033[0m", numBytes, numSectors);
+        ASSERT(FALSE);
+    }
     return TRUE;
 }
 
@@ -116,7 +119,7 @@ FileHeader::Deallocate(BitMap *freeMap) {
     if(remainedSectors > 0){
         // load idt from disk (shall not be a common usage)
         int idtSector = dataSectors[NumDirect - 2];
-        auto *idt = new IndirectTable;
+        IndirectTable *idt = new IndirectTable;
         FetchFrom(idtSector, (char*) idt);
         // free entry
         for(int j = 0; j < NumIndirect; j++){
@@ -130,7 +133,7 @@ FileHeader::Deallocate(BitMap *freeMap) {
     if(remainedSectors > 0){
         // load idt from disk (shall not be a common usage)
         int idtSector = dataSectors[NumDirect - 1];
-        auto *idt = new IndirectTable;
+        IndirectTable *idt = new IndirectTable;
         FetchFrom(idtSector, (char*) idt);
         // free entry
         for(int j = 0; j < NumIndirect; j++){
@@ -192,18 +195,34 @@ int
 FileHeader::ByteToSector(int offset) {
     if (0 <= offset && offset < (NumDirect - 2)*SectorSize){  // direct indexing
         return (dataSectors[ offset / SectorSize ]);
-    }else if((NumDirect - 2)*SectorSize <= offset && offset < (NumDirect - 1)*SectorSize){
-        // load idt from disk (shall not be a common usage)
-        int idtSector = dataSectors[NumDirect - 2];
-        auto *idt = new IndirectTable;
-        FetchFrom(idtSector, (char*) idt);
-        return
 
-    }else if((NumDirect - 1)*SectorSize <= offset && offset < (NumDirect)*SectorSize){
+    }else if((NumDirect - 2)*SectorSize <= offset && offset < (NumDirect - 2)*SectorSize + NumIndirect*SectorSize){
         // load idt from disk (shall not be a common usage)
-        int idtSector = dataSectors[NumDirect - 1];
-        auto *idt = new IndirectTable;
+        // f*ck the perf
+        int idtSector = dataSectors[NumDirect - 2];
+        IndirectTable *idt = new IndirectTable;
         FetchFrom(idtSector, (char*) idt);
+
+        int sectorNo = (offset - (NumDirect - 2)*SectorSize)/SectorSize;
+        if (sectorNo >= NumIndirect){
+            printf("\033[31m[ByteToSector] Invalid sector No %d\033[0m", sectorNo);
+            ASSERT(FALSE);
+        }
+        return idt->dataSectors[sectorNo];
+
+    }else if((NumDirect - 2)*SectorSize + NumIndirect*SectorSize <= offset && offset < (NumDirect - 2)*SectorSize + 2*NumIndirect*SectorSize){
+        // load idt from disk (shall not be a common usage)
+        // f*ck the perf
+        int idtSector = dataSectors[NumDirect - 1];
+        IndirectTable *idt = new IndirectTable;
+        FetchFrom(idtSector, (char*) idt);
+
+        int sectorNo = (offset - ((NumDirect - 2)*SectorSize + NumIndirect*SectorSize))/SectorSize;
+        if (sectorNo >= NumIndirect){
+            printf("\033[31m[ByteToSector] Invalid sector No %d\033[0m", sectorNo);
+            ASSERT(FALSE);
+        }
+        return idt->dataSectors[sectorNo];
 
     }else{
         printf("\033[31m[ByteToSector] Invalid offset %d\033[0m", offset);
@@ -236,13 +255,43 @@ FileHeader::Print() {
     printf("Type:%s Created @%d, Modified @%d, Accessed @%d\n", FileTypeStr[fileType], timeCreated, timeModified, timeAccessed);
 
     printf("FileHeader contents.  File size: %d.  File blocks:\n", numBytes);
-    for (i = 0; i < numSectors; i++)
-        printf("%d ", dataSectors[ i ]);
+//    for (i = 0; i < numSectors; i++)
+//        printf("%d ", dataSectors[ i ]);
+    int remainedSectors = numSectors;
+    for (int i = 0; i < min(numSectors, NumDirect - 2); i++){
+        printf("%d ", dataSectors[i]);
+        remainedSectors --;
+    }
+    if(remainedSectors > 0){
+        // load idt from disk (shall not be a common usage)
+        int idtSector = dataSectors[NumDirect - 2];
+        IndirectTable  *idt = new IndirectTable;
+        FetchFrom(idtSector, (char*) idt);
+        // free entry
+        for(int j = 0; j < NumIndirect; j++){
+            printf("%d ", dataSectors[j]);
+            remainedSectors --;
+        }
+    }
+    if(remainedSectors > 0){
+        // load idt from disk (shall not be a common usage)
+        int idtSector = dataSectors[NumDirect - 1];
+        IndirectTable  *idt = new IndirectTable;
+        FetchFrom(idtSector, (char*) idt);
+        // free entry
+        for(int j = 0; j < NumIndirect; j++){
+            printf("%d ", dataSectors[j]);
+            remainedSectors --;
+        }
+    }
+
     printf("\nFile contents:\n");
     for (i = k = 0; i < numSectors; i++) {
-        synchDisk->ReadSector(dataSectors[ i ], data);
+        int destSector = ByteToSector(i*SectorSize);
+        synchDisk->ReadSector(destSector, data);
+        printf("[Sector %3d] ", i);
         for (j = 0; (j < SectorSize) && (k < numBytes); j++, k++) {
-            if ('\040' <= data[ j ] && data[ j ] <= '\176')   // isprint(data[j])
+            if (('\032' <= data[ j ] && data[ j ] <= '\176') || data[j] == '\n')   // isprint(data[j])
                 printf("%c", data[ j ]);
             else
                 printf("\\%x", (unsigned char) data[ j ]);

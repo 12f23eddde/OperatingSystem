@@ -20,7 +20,7 @@
 // [lab5] add 4 ints
 #define NumDirect    ((SectorSize - 6 * sizeof(int)) / sizeof(int))
 #define NumIndirect  ((SectorSize) / sizeof(int))
-#define MaxFileSize    ((NumDirect-2) * SectorSize + 2* NumIndirect * SectorSize)
+#define MaxFileSize    ((NumDirect-2) * SectorSize + 2 * NumIndirect * SectorSize)
 
 // The following class defines the Nachos "file header" (in UNIX terms,  
 // the "i-node"), describing where on disk to find all of the data in the file.
@@ -82,7 +82,9 @@ public:
 private:
     int numBytes;            // Number of bytes in the file
     int numSectors;            // Number of data sectors in the file
+
     // [lab5] We Use [NumDirect -1, NumDirect -2] with 2-layer index
+    // We don't put idt here, since all contents of filehdr would be write back to disk
     int dataSectors[NumDirect];  // Disk sector numbers for each data block in the file
 };
 
