@@ -63,8 +63,8 @@ FileHeader::Allocate(BitMap *freeMap, int fileSize) {
         int idtSector;
         if ((idtSector = freeMap->Find()) == -1) return FALSE;  // no more space
         dataSectors[NumDirect - 2] = idtSector;
-        // set val of idt
-        for(int j = 0; j < NumIndirect; j++){
+        // set val of idt (stop alloc if remainedSectors = 0)
+        for(int j = 0; j < NumIndirect && remainedSectors > 0; j++){
             idt->dataSectors[j] = freeMap->Find();
             remainedSectors --;
         }
@@ -79,8 +79,8 @@ FileHeader::Allocate(BitMap *freeMap, int fileSize) {
         int idtSector;
         if ((idtSector = freeMap->Find()) == -1) return FALSE;  // no more space
         dataSectors[NumDirect - 1] = idtSector;
-        // set val of idt
-        for(int j = 0; j < NumIndirect; j++){
+        // set val of idt (stop alloc if remainedSectors = 0)
+        for(int j = 0; j < NumIndirect && remainedSectors > 0; j++){
             idt->dataSectors[j] = freeMap->Find();
             remainedSectors --;
         }
@@ -254,7 +254,7 @@ FileHeader::Print() {
     // [lab5] Modified
     printf("Type:%s Created @%d, Modified @%d, Accessed @%d\n", FileTypeStr[fileType], timeCreated, timeModified, timeAccessed);
 
-    printf("FileHeader contents.  File size: %d.  File blocks:\n", numBytes);
+    printf("FileHeader contents.  File size: %d/%d  File blocks:\n", numBytes, MaxFileSize);
 //    for (i = 0; i < numSectors; i++)
 //        printf("%d ", dataSectors[ i ]);
     int remainedSectors = numSectors;
@@ -267,11 +267,7 @@ FileHeader::Print() {
         int idtSector = dataSectors[NumDirect - 2];
         IndirectTable  *idt = new IndirectTable;
         FetchFrom(idtSector, (char*) idt);
-        // free entry
-        for(int j = 0; j < NumIndirect; j++){
-            printf("%d ", dataSectors[j]);
-            remainedSectors --;
-        }
+        idt->printSectors();
     }
     if(remainedSectors > 0){
         // load idt from disk (shall not be a common usage)
@@ -279,10 +275,7 @@ FileHeader::Print() {
         IndirectTable  *idt = new IndirectTable;
         FetchFrom(idtSector, (char*) idt);
         // free entry
-        for(int j = 0; j < NumIndirect; j++){
-            printf("%d ", dataSectors[j]);
-            remainedSectors --;
-        }
+        idt->printSectors();
     }
 
     printf("\nFile contents:\n");

@@ -35,6 +35,7 @@
 //	"size" is the number of entries in the directory
 //----------------------------------------------------------------------
 
+// [lab5] dirSector for parent dir
 Directory::Directory(int size, int dirSector) {
     table = new DirectoryEntry[size];
     tableSize = size;
@@ -43,8 +44,13 @@ Directory::Directory(int size, int dirSector) {
 
     // [lab5] 增加..项
     if(dirSector >= 0){
+        DEBUG('D', "[Directory] Adding .. (%d)\n", dirSector);
         Add("..", dirSector);
+        printf("\033[36m");
+        Print();
+        printf("\033[0m");
     }
+
 }
 
 //----------------------------------------------------------------------

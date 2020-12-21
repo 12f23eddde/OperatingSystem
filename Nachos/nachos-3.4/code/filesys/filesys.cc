@@ -54,13 +54,13 @@
 #include "system.h"
 
 // Sectors containing the file headers for the bitmap of free sectors,
-// and the directory of files.  These file headers are placed in well-known 
+// and the directory of files.  These file headers are placed in well-known
 // sectors, so that they can be located on boot-up.
 #define FreeMapSector        0
 #define DirectorySector    1
 
 // Initial file sizes for the bitmap and directory; until the file system
-// supports extensible files, the directory size sets the maximum number 
+// supports extensible files, the directory size sets the maximum number
 // of files that can be loaded onto the disk.
 #define FreeMapFileSize    (NumSectors / BitsInByte)
 #define NumDirEntries        10
@@ -203,6 +203,11 @@ FileSystem::Create(char *name, int initialSize, FileType fileType) {
             success = FALSE;    // no space in directory
         else {
             hdr = new FileHeader;
+
+            // [lab5] override initialSize if fileType is dir or bitmap
+            if(fileType==dirFile) initialSize=DirectoryFileSize;
+            if(fileType==bitmapFile) initialSize=FreeMapFileSize;
+
             if (!hdr->Allocate(freeMap, initialSize))
                 success = FALSE;    // no space on disk for data
             else {
@@ -214,6 +219,20 @@ FileSystem::Create(char *name, int initialSize, FileType fileType) {
 
                 DEBUG('D', "[Create] Creating file %s (%s), size %d, time %d\n",
                         name, FileTypeStr[hdr->fileType], initialSize, hdr->timeCreated);
+
+                // Init a new Directory
+                if(fileType == dirFile){
+                    // new dir (sec=pwd)
+                    Directory *directory = new Directory(NumDirEntries, directoryFile->hdrSector);
+                    FileHeader *dirHdr = new FileHeader;
+                    // alloc 1 sector
+                    int dirSector = freeMap->Find();
+                    ASSERT(dirHdr->Allocate(freeMap, DirectoryFileSize));
+                    // init dirFile on disk
+                    dirHdr->WriteBack(dirSector);
+                    directoryFile = new OpenFile(dirSector);
+                    directory->WriteBack(directoryFile);
+                }
 
                 // everthing worked, flush all changes back to disk
                 hdr->WriteBack(sector);
@@ -354,4 +373,30 @@ FileSystem::Print() {
     delete dirHdr;
     delete freeMap;
     delete directory;
-} 
+}
+
+// [lab5] ChangeDir: only supports relative path
+bool FileSystem::ChangeDir(char *name) {
+    // Find target from current Dir
+    Directory *dir = new Directory(NumDirEntries);
+    dir->FetchFrom(directoryFile);
+    int targetSector = dir->Find(name);
+    if (targetSector == -1) {
+        DEBUG('D', "[changeDir] %s not found in pwd\n", name);
+        return FALSE; // Not Found
+    }
+    FileHeader* tempHdr = new FileHeader;
+    tempHdr->FetchFrom(targetSector);
+    if(tempHdr->fileType!=dirFile){
+        DEBUG('D', "[changeDir] %s is not a dir\n", name);
+        return FALSE; // Not Found
+    }
+    // Close current file then open new dirFile
+    delete directoryFile;
+    directoryFile = new OpenFile(targetSector);
+    if(!directoryFile){
+        printf("\033[31m[ChangeDir] Failed to load target sector %d\n\033[0m", targetSector);
+        ASSERT(FALSE);
+    }
+    return TRUE;
+}

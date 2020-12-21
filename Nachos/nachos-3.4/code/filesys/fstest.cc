@@ -183,3 +183,12 @@ PerformanceTest() {
     stats->Print();
 }
 
+void PathTest(){
+    ASSERT(fileSystem->Create("dirA", SectorSize, dirFile));
+    fileSystem->Print();
+    ASSERT(fileSystem->ChangeDir("dirA"));
+    fileSystem->Print();
+    ASSERT(fileSystem->ChangeDir(".."));
+    fileSystem->ChangeDir("Ha");
+}
+

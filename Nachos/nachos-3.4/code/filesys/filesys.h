@@ -67,6 +67,7 @@ bool Remove(char *name) { return Unlink(name) == 0; }
 
 #else // FILESYS
 
+
 class FileSystem {
 public:
     FileSystem(bool format);        // Initialize the file system.
@@ -87,11 +88,12 @@ public:
 
     void Print();            // List all the files and their contents
 
+    bool ChangeDir(char *name);  // [lab5] Only supports relative path
+
 private:
     OpenFile *freeMapFile;        // Bit map of free disk blocks,
     // represented as a file
-    OpenFile *directoryFile;        // "Root" directory -- list of
-    // file names, represented as a file
+    OpenFile *directoryFile;        // [lab5] Now directoryFile is pwd, not root
 };
 
 #endif // FILESYS
