@@ -21,7 +21,7 @@
 #include "disk.h"
 #include "stats.h"
 
-#define TransferSize 	10 	// make it small, just to be difficult
+#define TransferSize    10    // make it small, just to be difficult
 
 //----------------------------------------------------------------------
 // Copy
@@ -29,40 +29,39 @@
 //----------------------------------------------------------------------
 
 void
-Copy(char *from, char *to)
-{
+Copy(char *from, char *to) {
     FILE *fp;
-    OpenFile* openFile;
+    OpenFile *openFile;
     int amountRead, fileLength;
     char *buffer;
 
 // Open UNIX file
-    if ((fp = fopen(from, "r")) == NULL) {	 
-	printf("Copy: couldn't open input file %s\n", from);
-	return;
+    if ((fp = fopen(from, "r")) == NULL) {
+        printf("Copy: couldn't open input file %s\n", from);
+        return;
     }
 
 // Figure out length of UNIX file
-    fseek(fp, 0, 2);		
+    fseek(fp, 0, 2);
     fileLength = ftell(fp);
     fseek(fp, 0, 0);
 
 // Create a Nachos file of the same length
     DEBUG('f', "Copying file %s, size %d, to file %s\n", from, fileLength, to);
-    if (!fileSystem->Create(to, fileLength)) {	 // Create Nachos file
-	printf("Copy: couldn't create output file %s\n", to);
-	fclose(fp);
-	return;
+    if (!fileSystem->Create(to, fileLength)) {     // Create Nachos file
+        printf("Copy: couldn't create output file %s\n", to);
+        fclose(fp);
+        return;
     }
-    
+
     openFile = fileSystem->Open(to);
     ASSERT(openFile != NULL);
-    
+
 // Copy the data in TransferSize chunks
     buffer = new char[TransferSize];
     while ((amountRead = fread(buffer, sizeof(char), TransferSize, fp)) > 0)
-	openFile->Write(buffer, amountRead);	
-    delete [] buffer;
+        openFile->Write(buffer, amountRead);
+    delete[] buffer;
 
 // Close the UNIX and the Nachos files
     delete openFile;
@@ -75,24 +74,28 @@ Copy(char *from, char *to)
 //----------------------------------------------------------------------
 
 void
-Print(char *name)
-{
-    OpenFile *openFile;    
+Print(char *name) {
+    OpenFile *openFile;
     int i, amountRead;
     char *buffer;
 
     if ((openFile = fileSystem->Open(name)) == NULL) {
-	printf("Print: unable to open file %s\n", name);
-	return;
+        printf("Print: unable to open file %s\n", name);
+        return;
     }
-    
+
     buffer = new char[TransferSize];
     while ((amountRead = openFile->Read(buffer, TransferSize)) > 0)
-	for (i = 0; i < amountRead; i++)
-	    printf("%c", buffer[i]);
-    delete [] buffer;
+        for (i = 0; i < amountRead; i++)
+            printf("%c", buffer[ i ]);
+    delete[] buffer;
 
-    delete openFile;		// close the Nachos file
+    // [debug]
+    printf("\033[36m");
+    fileSystem->Print();
+    printf("\033[0m");
+
+    delete openFile;        // close the Nachos file
     return;
 }
 
@@ -108,77 +111,74 @@ Print(char *name)
 //	  PerformanceTest -- overall control, and print out performance #'s
 //----------------------------------------------------------------------
 
-#define FileName 	"TestFile"
-#define Contents 	"1234567890"
-#define ContentSize 	strlen(Contents)
-#define FileSize 	((int)(ContentSize * 5000))
+#define FileName    "TestFile"
+#define Contents    "1234567890"
+#define ContentSize    strlen(Contents)
+#define FileSize    ((int)(ContentSize * 5000))
 
-static void 
-FileWrite()
-{
-    OpenFile *openFile;    
+static void
+FileWrite() {
+    OpenFile *openFile;
     int i, numBytes;
 
-    printf("Sequential write of %d byte file, in %d byte chunks\n", 
-	FileSize, ContentSize);
+    printf("Sequential write of %d byte file, in %d byte chunks\n",
+           FileSize, ContentSize);
     if (!fileSystem->Create(FileName, 0)) {
-      printf("Perf test: can't create %s\n", FileName);
-      return;
+        printf("Perf test: can't create %s\n", FileName);
+        return;
     }
     openFile = fileSystem->Open(FileName);
     if (openFile == NULL) {
-	printf("Perf test: unable to open %s\n", FileName);
-	return;
+        printf("Perf test: unable to open %s\n", FileName);
+        return;
     }
     for (i = 0; i < FileSize; i += ContentSize) {
         numBytes = openFile->Write(Contents, ContentSize);
-	if (numBytes < 10) {
-	    printf("Perf test: unable to write %s\n", FileName);
-	    delete openFile;
-	    return;
-	}
+        if (numBytes < 10) {
+            printf("Perf test: unable to write %s\n", FileName);
+            delete openFile;
+            return;
+        }
     }
-    delete openFile;	// close file
+    delete openFile;    // close file
 }
 
-static void 
-FileRead()
-{
-    OpenFile *openFile;    
+static void
+FileRead() {
+    OpenFile *openFile;
     char *buffer = new char[ContentSize];
     int i, numBytes;
 
-    printf("Sequential read of %d byte file, in %d byte chunks\n", 
-	FileSize, ContentSize);
+    printf("Sequential read of %d byte file, in %d byte chunks\n",
+           FileSize, ContentSize);
 
     if ((openFile = fileSystem->Open(FileName)) == NULL) {
-	printf("Perf test: unable to open file %s\n", FileName);
-	delete [] buffer;
-	return;
+        printf("Perf test: unable to open file %s\n", FileName);
+        delete[] buffer;
+        return;
     }
     for (i = 0; i < FileSize; i += ContentSize) {
         numBytes = openFile->Read(buffer, ContentSize);
-	if ((numBytes < 10) || strncmp(buffer, Contents, ContentSize)) {
-	    printf("Perf test: unable to read %s\n", FileName);
-	    delete openFile;
-	    delete [] buffer;
-	    return;
-	}
+        if ((numBytes < 10) || strncmp(buffer, Contents, ContentSize)) {
+            printf("Perf test: unable to read %s\n", FileName);
+            delete openFile;
+            delete[] buffer;
+            return;
+        }
     }
-    delete [] buffer;
-    delete openFile;	// close file
+    delete[] buffer;
+    delete openFile;    // close file
 }
 
 void
-PerformanceTest()
-{
+PerformanceTest() {
     printf("Starting file system performance test:\n");
     stats->Print();
     FileWrite();
     FileRead();
     if (!fileSystem->Remove(FileName)) {
-      printf("Perf test: unable to remove %s\n", FileName);
-      return;
+        printf("Perf test: unable to remove %s\n", FileName);
+        return;
     }
     stats->Print();
 }

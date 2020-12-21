@@ -86,22 +86,24 @@ main(int argc, char **argv)
 
     DEBUG('t', "Entering main");
     (void) Initialize(argc, argv);
-    
-#ifdef THREADS
-    for (argc--, argv++; argc > 0; argc -= argCount, argv += argCount) {
-      argCount = 1;
-      switch (argv[0][1]) {
-      case 'q':
-        testnum = atoi(argv[1]);
-        argCount++;
-        break;
-      default:
-        testnum = 1;
-        break;
-      }
-    }
 
-    ThreadTest();
+#ifndef FILESYS_TESTING
+    #ifdef THREADS
+        for (argc--, argv++; argc > 0; argc -= argCount, argv += argCount) {
+          argCount = 1;
+          switch (argv[0][1]) {
+          case 'q':
+            testnum = atoi(argv[1]);
+            argCount++;
+            break;
+          default:
+            testnum = 1;
+            break;
+          }
+        }
+
+        ThreadTest();
+    #endif
 #endif
 
     for (argc--, argv++; argc > 0; argc -= argCount, argv += argCount) {

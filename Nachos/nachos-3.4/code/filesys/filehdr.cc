@@ -39,15 +39,55 @@
 //----------------------------------------------------------------------
 
 bool
-FileHeader::Allocate(BitMap *freeMap, int fileSize)
-{ 
+FileHeader::Allocate(BitMap *freeMap, int fileSize) {
     numBytes = fileSize;
-    numSectors  = divRoundUp(fileSize, SectorSize);
-    if (freeMap->NumClear() < numSectors)
-	return FALSE;		// not enough space
+    numSectors = divRoundUp(fileSize, SectorSize);
+    if (freeMap->NumClear() < numSectors + 2)
+        return FALSE;        // not enough space
 
-    for (int i = 0; i < numSectors; i++)
-	dataSectors[i] = freeMap->Find();
+//    for (int i = 0; i < numSectors; i++)
+//        dataSectors[ i ] = freeMap->Find();
+
+    // direct indexing
+    int remainedSectors = numSectors;
+    for (int i = 0; i < min(numSectors, NumDirect - 2); i++){
+        dataSectors[i] = freeMap->Find();
+        remainedSectors --;
+    }
+
+    // [NOTE!] numSectors MUST BE RIGHT, else catastrophic mem errors can happen
+    // dataSectors[NumDirect - 2]: indirect indexing
+    if(remainedSectors > 0){
+        // alloc sector from disk
+        auto* idt = new IndirectTable;
+        int idtSector;
+        if ((idtSector = freeMap->Find()) == -1) return FALSE;  // no more space
+        dataSectors[NumDirect - 2] = idtSector;
+        // set val of idt
+        for(int j = 0; j < NumIndirect; j++){
+            idt->dataSectors[j] = freeMap->Find();
+            remainedSectors --;
+        }
+        // write changes to disk
+        WriteBack(idtSector, (char*) idt);
+    }
+
+    // dataSectors[NumDirect - 1]: indirect indexing
+    if(remainedSectors > 0){
+        // alloc sector from disk
+        auto* idt = new IndirectTable;
+        int idtSector;
+        if ((idtSector = freeMap->Find()) == -1) return FALSE;  // no more space
+        dataSectors[NumDirect - 1] = idtSector;
+        // set val of idt
+        for(int j = 0; j < NumIndirect; j++){
+            idt->dataSectors[j] = freeMap->Find();
+            remainedSectors --;
+        }
+        // write changes to disk
+        WriteBack(idtSector, (char*) idt);
+    }
+
     return TRUE;
 }
 
@@ -58,39 +98,83 @@ FileHeader::Allocate(BitMap *freeMap, int fileSize)
 //	"freeMap" is the bit map of free disk sectors
 //----------------------------------------------------------------------
 
-void 
-FileHeader::Deallocate(BitMap *freeMap)
-{
-    for (int i = 0; i < numSectors; i++) {
-	ASSERT(freeMap->Test((int) dataSectors[i]));  // ought to be marked!
-	freeMap->Clear((int) dataSectors[i]);
+void
+FileHeader::Deallocate(BitMap *freeMap) {
+
+//    for (int i = 0; i < numSectors; i++) {
+//        ASSERT(freeMap->Test((int) dataSectors[ i ]));  // ought to be marked!
+//        freeMap->Clear((int) dataSectors[ i ]);
+//    }
+
+    // just another allocate
+    int remainedSectors = numSectors;
+    for (int i = 0; i < min(numSectors, NumDirect - 2); i++){
+        freeMap->Clear(dataSectors[i]);
+        remainedSectors --;
+    }
+    // dataSectors[NumDirect - 2]: indirect indexing
+    if(remainedSectors > 0){
+        // load idt from disk (shall not be a common usage)
+        int idtSector = dataSectors[NumDirect - 2];
+        auto *idt = new IndirectTable;
+        FetchFrom(idtSector, (char*) idt);
+        // free entry
+        for(int j = 0; j < NumIndirect; j++){
+            freeMap->Clear(idt->dataSectors[j]);
+            remainedSectors --;
+        }
+        // free table
+        freeMap->Clear(dataSectors[NumDirect - 2]);
+    }
+    // dataSectors[NumDirect - 1]: indirect indexing
+    if(remainedSectors > 0){
+        // load idt from disk (shall not be a common usage)
+        int idtSector = dataSectors[NumDirect - 1];
+        auto *idt = new IndirectTable;
+        FetchFrom(idtSector, (char*) idt);
+        // free entry
+        for(int j = 0; j < NumIndirect; j++){
+            freeMap->Clear(idt->dataSectors[j]);
+            remainedSectors --;
+        }
+        // free table
+        freeMap->Clear(idtSector);
     }
 }
 
 //----------------------------------------------------------------------
 // FileHeader::FetchFrom
-// 	Fetch contents of file header from disk. 
-//
+// 	Fetch contents of file header from disk.
+//  [lab5] or Anything else with the size of 1 sector
 //	"sector" is the disk sector containing the file header
 //----------------------------------------------------------------------
 
 void
-FileHeader::FetchFrom(int sector)
-{
-    synchDisk->ReadSector(sector, (char *)this);
+FileHeader::FetchFrom(int sector, char* dest) {
+    if (!dest){
+        synchDisk->ReadSector(sector, (char *) this);
+    }else{
+        DEBUG('D', "[FetchFrom] Reading idt from sector %d at dest %p\n", sector, dest);
+        synchDisk->ReadSector(sector, dest);
+    }
+
 }
 
 //----------------------------------------------------------------------
 // FileHeader::WriteBack
 // 	Write the modified contents of the file header back to disk. 
-//
+//  [lab5] or Anything else with the size of 1 sector
 //	"sector" is the disk sector to contain the file header
 //----------------------------------------------------------------------
 
 void
-FileHeader::WriteBack(int sector)
-{
-    synchDisk->WriteSector(sector, (char *)this); 
+FileHeader::WriteBack(int sector, char* dest) {
+    if(!dest) {
+        synchDisk->WriteSector(sector, (char *) this);
+    }else{
+        DEBUG('D', "[WriteBack] Writing idt to sector %d at dest %p\n", sector, dest);
+        synchDisk->WriteSector(sector, dest);
+    }
 }
 
 //----------------------------------------------------------------------
@@ -103,10 +187,28 @@ FileHeader::WriteBack(int sector)
 //	"offset" is the location within the file of the byte in question
 //----------------------------------------------------------------------
 
+// [lab5] Modified to support indirect indexing
 int
-FileHeader::ByteToSector(int offset)
-{
-    return(dataSectors[offset / SectorSize]);
+FileHeader::ByteToSector(int offset) {
+    if (0 <= offset && offset < (NumDirect - 2)*SectorSize){  // direct indexing
+        return (dataSectors[ offset / SectorSize ]);
+    }else if((NumDirect - 2)*SectorSize <= offset && offset < (NumDirect - 1)*SectorSize){
+        // load idt from disk (shall not be a common usage)
+        int idtSector = dataSectors[NumDirect - 2];
+        auto *idt = new IndirectTable;
+        FetchFrom(idtSector, (char*) idt);
+        return
+
+    }else if((NumDirect - 1)*SectorSize <= offset && offset < (NumDirect)*SectorSize){
+        // load idt from disk (shall not be a common usage)
+        int idtSector = dataSectors[NumDirect - 1];
+        auto *idt = new IndirectTable;
+        FetchFrom(idtSector, (char*) idt);
+
+    }else{
+        printf("\033[31m[ByteToSector] Invalid offset %d\033[0m", offset);
+        ASSERT(FALSE);
+    }
 }
 
 //----------------------------------------------------------------------
@@ -115,8 +217,7 @@ FileHeader::ByteToSector(int offset)
 //----------------------------------------------------------------------
 
 int
-FileHeader::FileLength()
-{
+FileHeader::FileLength() {
     return numBytes;
 }
 
@@ -127,24 +228,34 @@ FileHeader::FileLength()
 //----------------------------------------------------------------------
 
 void
-FileHeader::Print()
-{
+FileHeader::Print() {
     int i, j, k;
     char *data = new char[SectorSize];
 
+    // [lab5] Modified
+    printf("Type:%s Created @%d, Modified @%d, Accessed @%d\n", FileTypeStr[fileType], timeCreated, timeModified, timeAccessed);
+
     printf("FileHeader contents.  File size: %d.  File blocks:\n", numBytes);
     for (i = 0; i < numSectors; i++)
-	printf("%d ", dataSectors[i]);
+        printf("%d ", dataSectors[ i ]);
     printf("\nFile contents:\n");
     for (i = k = 0; i < numSectors; i++) {
-	synchDisk->ReadSector(dataSectors[i], data);
+        synchDisk->ReadSector(dataSectors[ i ], data);
         for (j = 0; (j < SectorSize) && (k < numBytes); j++, k++) {
-	    if ('\040' <= data[j] && data[j] <= '\176')   // isprint(data[j])
-		printf("%c", data[j]);
+            if ('\040' <= data[ j ] && data[ j ] <= '\176')   // isprint(data[j])
+                printf("%c", data[ j ]);
             else
-		printf("\\%x", (unsigned char)data[j]);
-	}
-        printf("\n"); 
+                printf("\\%x", (unsigned char) data[ j ]);
+        }
+        printf("\n");
     }
-    delete [] data;
+    delete[] data;
+}
+
+void IndirectTable::printSectors(int cnt) {
+    printf("[");
+    for(int i = 0; i < cnt; i++){
+        printf("%d,", dataSectors[i]);
+    }
+    printf("]\n");
 }

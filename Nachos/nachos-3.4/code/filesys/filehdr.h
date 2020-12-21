@@ -17,8 +17,10 @@
 #include "disk.h"
 #include "bitmap.h"
 
-#define NumDirect 	((SectorSize - 2 * sizeof(int)) / sizeof(int))
-#define MaxFileSize 	(NumDirect * SectorSize)
+// [lab5] add 4 ints
+#define NumDirect    ((SectorSize - 6 * sizeof(int)) / sizeof(int))
+#define NumIndirect  ((SectorSize) / sizeof(int))
+#define MaxFileSize    ((NumDirect-2) * SectorSize + 2* NumIndirect * SectorSize)
 
 // The following class defines the Nachos "file header" (in UNIX terms,  
 // the "i-node"), describing where on disk to find all of the data in the file.
@@ -35,32 +37,53 @@
 // by allocating blocks for the file (if it is a new file), or by
 // reading it from disk.
 
+enum FileType {normalFile, dirFile, bitmapFile};
+static const char* FileTypeStr [] = {"File", "Dir", "BitMap"};
+
+// [lab5] Indirect Index Table
+// For convenience, the size of 1 table is the same as 1 sector
+// | 0 | 1 | ... | n-2 | n-1 |
+//   .   .          ,     ,
+//                 ...   ...
+// IndirectTable does NOT do mem/disk management
+// FileHeader should alloc/dealloc when Alloc, Dealloc
+struct IndirectTable {
+    int dataSectors[NumIndirect];
+    void printSectors(int cnt=NumIndirect);
+};
+
 class FileHeader {
-  public:
+public:
     bool Allocate(BitMap *bitMap, int fileSize);// Initialize a file header, 
-						//  including allocating space 
-						//  on disk for the file data
-    void Deallocate(BitMap *bitMap);  		// De-allocate this file's 
-						//  data blocks
+    //  including allocating space
+    //  on disk for the file data
+    void Deallocate(BitMap *bitMap);        // De-allocate this file's
+    //  data blocks
 
-    void FetchFrom(int sectorNumber); 	// Initialize file header from disk
-    void WriteBack(int sectorNumber); 	// Write modifications to file header
-					//  back to disk
+    void FetchFrom(int sectorNumber, char* dest=NULL);    // Initialize file header from disk
+    void WriteBack(int sectorNumber, char* dest=NULL);    // Write modifications to file header
+    //  back to disk
 
-    int ByteToSector(int offset);	// Convert a byte offset into the file
-					// to the disk sector containing
-					// the byte
+    int ByteToSector(int offset);    // Convert a byte offset into the file
+    // to the disk sector containing
+    // the byte
 
-    int FileLength();			// Return the length of the file 
-					// in bytes
+    int FileLength();            // Return the length of the file
+    // in bytes
 
-    void Print();			// Print the contents of the file.
+    void Print();            // Print the contents of the file.
 
-  private:
-    int numBytes;			// Number of bytes in the file
-    int numSectors;			// Number of data sectors in the file
-    int dataSectors[NumDirect];		// Disk sector numbers for each data 
-					// block in the file
+    // [lab5] Made it public for convenience
+    FileType fileType;
+    int timeCreated = -1;
+    int timeModified = -1;
+    int timeAccessed = -1;
+
+private:
+    int numBytes;            // Number of bytes in the file
+    int numSectors;            // Number of data sectors in the file
+    // [lab5] We Use [NumDirect -1, NumDirect -2] with 2-layer index
+    int dataSectors[NumDirect];  // Disk sector numbers for each data block in the file
 };
 
 #endif // FILEHDR_H
