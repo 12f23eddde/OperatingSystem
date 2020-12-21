@@ -16,6 +16,10 @@ Nachos/nachos-3.4/code/bin/out
 # VS Code
 .vscode
 
+# IDEA
+.idea
+cmake-build-debug
+
 # Prerequisites
 *.d
 

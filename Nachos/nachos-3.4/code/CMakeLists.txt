@@ -1,0 +1,99 @@
+cmake_minimum_required(VERSION 3.15)
+project(code)
+
+set(CMAKE_CXX_STANDARD 14)
+
+include_directories(bin)
+include_directories(filesys)
+include_directories(machine)
+include_directories(network)
+include_directories(threads)
+include_directories(userprog)
+
+add_executable(code
+        bin/coff.h
+        bin/coff2flat.c
+        bin/coff2noff.c
+        bin/d.c
+        bin/disasm.c
+        bin/encode.h
+        bin/execute.c
+        bin/instr.h
+        bin/int.h
+        bin/main.c
+        bin/noff.h
+        bin/opstrings.c
+        bin/out.c
+        bin/system.c
+        filesys/directory.cc
+        filesys/directory.h
+        filesys/filehdr.cc
+        filesys/filehdr.h
+        filesys/filesys.cc
+        filesys/filesys.h
+        filesys/fstest.cc
+        filesys/openfile.cc
+        filesys/openfile.h
+        filesys/synchdisk.cc
+        filesys/synchdisk.h
+        machine/console.cc
+        machine/console.h
+        machine/disk.cc
+        machine/disk.h
+        machine/elevator.cc
+        machine/elevator.h
+        machine/elevatortest.cc
+        machine/elevatortest.h
+        machine/interrupt.cc
+        machine/interrupt.h
+        machine/machine.cc
+        machine/machine.h
+        machine/mipssim.cc
+        machine/mipssim.h
+        machine/network.cc
+        machine/network.h
+        machine/stats.cc
+        machine/stats.h
+        machine/sysdep.cc
+        machine/sysdep.h
+        machine/timer.cc
+        machine/timer.h
+        machine/translate.cc
+        machine/translate.h
+        network/nettest.cc
+        network/post.cc
+        network/post.h
+        test/halt.c
+        test/matmult.c
+        test/shell.c
+        test/sort.c
+        test/start.c
+        threads/bool.h
+        threads/copyright.h
+        threads/list.cc
+        threads/list.h
+        threads/main.cc
+        threads/scheduler.cc
+        threads/scheduler.h
+        threads/stdarg.h
+        threads/switch.c
+        threads/switch.h
+        threads/synch.cc
+        threads/synch.h
+        threads/synchlist.cc
+        threads/synchlist.h
+        threads/system.cc
+        threads/system.h
+        threads/thread.cc
+        threads/thread.h
+        threads/threadtest-lock.cc
+        threads/threadtest.cc
+        threads/utility.cc
+        threads/utility.h
+        userprog/addrspace.cc
+        userprog/addrspace.h
+        userprog/bitmap.cc
+        userprog/bitmap.h
+        userprog/exception.cc
+        userprog/progtest.cc
+        userprog/syscall.h)
