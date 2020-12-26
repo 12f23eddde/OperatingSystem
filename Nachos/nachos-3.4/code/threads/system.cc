@@ -24,6 +24,7 @@ Thread *threadsList[MAX_THREADS] = {NULL};
 
 #ifdef FILESYS_NEEDED
 FileSystem  *fileSystem;
+HeaderTable *hdrTable;
 #endif
 
 #ifdef FILESYS
@@ -172,6 +173,7 @@ Initialize(int argc, char **argv)
 
 #ifdef FILESYS_NEEDED
     fileSystem = new FileSystem(format);
+    hdrTable = new HeaderTable();
 #endif
 
 #ifdef NETWORK

@@ -38,6 +38,7 @@
 #include "copyright.h"
 #include "openfile.h"
 #include "filehdr.h"
+#include "synch.h"
 
 #ifdef FILESYS_STUB        // Temporarily implement file system calls as
 // calls to UNIX, until the real file system
@@ -67,6 +68,18 @@ bool Remove(char *name) { return Unlink(name) == 0; }
 
 #else // FILESYS
 
+// Sectors containing the file headers for the bitmap of free sectors,
+// and the directory of files.  These file headers are placed in well-known
+// sectors, so that they can be located on boot-up.
+#define FreeMapSector        0
+#define DirectorySector    1
+
+// Initial file sizes for the bitmap and directory; until the file system
+// supports extensible files, the directory size sets the maximum number
+// of files that can be loaded onto the disk.
+#define FreeMapFileSize    (NumSectors / BitsInByte)
+#define NumDirEntries        10
+#define DirectoryFileSize    (sizeof(DirectoryEntry) * NumDirEntries)
 
 class FileSystem {
 public:
@@ -94,6 +107,45 @@ private:
     OpenFile *freeMapFile;        // Bit map of free disk blocks,
     // represented as a file
     OpenFile *directoryFile;        // [lab5] Now directoryFile is pwd, not root
+};
+
+struct HeaderTableEntry {
+    // [lab5] manually alloc all locks & semaphores
+    HeaderTableEntry();
+    ~HeaderTableEntry();
+
+    int hdrSector;
+    bool inUse;
+
+    // [lab5] reader/writer
+    int readerCount;
+    Lock *readerLock;
+    Lock *fileLock;
+    // [lab5] safe delete
+//    int refCount;
+//    Lock *refLock;
+};
+
+class HeaderTable {
+public:
+    HeaderTable(int size);
+    ~HeaderTable();
+
+    // called by reader, parameter is hdrSector
+    void beforeRead(int sector);
+    void afterRead(int sector);
+
+    // called by writer, parameter is hdrSector
+    void beforeWrite(int sector);
+    void afterWrite(int sector);
+
+    int fileOpen(int sector);
+    void fileClose(int sector);
+    int findIndex(int sector);
+
+private:
+    int tableSize;
+    HeaderTableEntry *table;
 };
 
 #endif // FILESYS

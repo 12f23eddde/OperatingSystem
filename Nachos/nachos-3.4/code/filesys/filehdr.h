@@ -74,12 +74,13 @@ public:
     void Print();            // Print the contents of the file.
 
     // [lab5] Made it public for convenience
+    int ScaleUp(BitMap *freeMap, int newSize);
+
     FileType fileType;
     int timeCreated = -1;
     int timeModified = -1;
     int timeAccessed = -1;
 
-private:
     int numBytes;            // Number of bytes in the file
     int numSectors;            // Number of data sectors in the file
 

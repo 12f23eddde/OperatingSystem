@@ -24,6 +24,7 @@
 #include "utility.h"
 #include "filehdr.h"
 #include "directory.h"
+#include "filesys.h"
 
 //----------------------------------------------------------------------
 // Directory::Directory
@@ -46,9 +47,6 @@ Directory::Directory(int size, int dirSector) {
     if(dirSector >= 0){
         DEBUG('D', "[Directory] Adding .. (%d)\n", dirSector);
         Add("..", dirSector);
-        printf("\033[36m");
-        Print();
-        printf("\033[0m");
     }
 
 }
@@ -71,7 +69,13 @@ Directory::~Directory() {
 
 void
 Directory::FetchFrom(OpenFile *file) {
-    (void) file->ReadAt((char *) table, tableSize * sizeof(DirectoryEntry), 0);
+    int sizeRead = file->ReadAt((char *) table, tableSize * sizeof(DirectoryEntry), 0);
+    if(sizeRead != (sizeof(DirectoryEntry) * tableSize)){
+        printf("\033[31m[FetchFrom] Incorrect read size (%d/%d)\n\033[0m", sizeRead, tableSize * sizeof(DirectoryEntry));
+        ASSERT(FALSE);
+    }
+    // [lab5] set header Sector
+    this->hdrSector = file->hdrSector;
 }
 
 //----------------------------------------------------------------------
@@ -83,7 +87,11 @@ Directory::FetchFrom(OpenFile *file) {
 
 void
 Directory::WriteBack(OpenFile *file) {
-    (void) file->WriteAt((char *) table, tableSize * sizeof(DirectoryEntry), 0);
+    int sizeWritten = file->WriteAt((char *) table, tableSize * sizeof(DirectoryEntry), 0);
+    if(sizeWritten != (sizeof(DirectoryEntry) * tableSize)){
+        printf("\033[31m[WriteBack] Incorrect written size (%d/%d)\n\033[0m", sizeWritten, tableSize * sizeof(DirectoryEntry));
+        ASSERT(FALSE);
+    }
 }
 
 //----------------------------------------------------------------------
@@ -169,13 +177,22 @@ Directory::Remove(char *name) {
 // 	List all the file names in the directory. 
 //----------------------------------------------------------------------
 
+// [lab5] Modified
 void
 Directory::List() {
+    FileHeader *hdr = new FileHeader;
+    char* pathStr = findPath();
+    printf("[List] %s:\n", pathStr);
+    printf("%-20s %-10s %-10s %-10s %-10s %-10s\n","NAME", "TYPE", "SIZE", "CREATED", "ACCESSED", "MODDED");
     for (int i = 0; i < tableSize; i++) {
         if (table[ i ].inUse){
-            printf("%s", table[i].name);
+            hdr->FetchFrom(table[i].sector);
+
+            printf("%-20s %-10s %-10d %-10d %-10d %-10d\n",
+                    table[i].name, FileTypeStr[hdr->fileType], hdr->FileLength(), hdr->timeCreated, hdr->timeAccessed, hdr->timeModified);
         }
     }
+    delete hdr;
 }
 
 //----------------------------------------------------------------------
@@ -197,4 +214,82 @@ Directory::Print() {
         }
     printf("\n");
     delete hdr;
+}
+
+// [lab5] Remove all files in current directory
+// like unix command rm -r, but NOT REMOVING CURRENT DIR
+void Directory::RemoveAll(BitMap *freeMap) {
+    FileHeader *hdr = new FileHeader;
+    Directory* subDir = new Directory(NumDirEntries);
+    OpenFile *subFile = NULL;
+    for (int i = 0; i < tableSize; i++) {
+        if (table[ i ].inUse) {
+            // Can not remove ..
+            if (!strcmp(table[i].name, "..")) continue;
+            printf("Name: %s, Sector: %d\n", table[ i ].name, table[ i ].sector);
+            hdr->FetchFrom(table[ i ].sector);
+
+            if (hdr->fileType == dirFile){
+                subFile = new OpenFile(table[i].sector);
+                subDir = new Directory(NumDirEntries);
+                subDir->FetchFrom(subFile);
+                // recursively remove subdir
+                subDir->RemoveAll(freeMap);
+            }
+            // remove data & hdr
+            hdr->Deallocate(freeMap);
+            freeMap->Clear(table[i].sector);
+            // remove dir entry
+            table[i].inUse = FALSE;
+
+            DEBUG('D', "[RemoveAll] Removed %s\n", table[i].name);
+        }
+    }
+    delete hdr;
+    delete subDir;
+    delete subFile;
+}
+
+// [lab5] find Name by Sector
+// NULL if not found
+char * Directory::findNameBySector(int sector){
+    for (int i = 0; i < tableSize; i++) {
+        if (table[ i ].inUse && table[i].sector == sector) {
+            return table[i].name;
+        }
+    }
+    return NULL;
+}
+
+// [lab5] get path for pwd
+char * Directory::findPath() {
+    int parentDirSector = Find("..");
+    int subDirSector = hdrSector;
+    char *subDirName = NULL;
+    Directory *parentDir = new Directory(NumDirEntries);
+    OpenFile *parentFile = NULL;
+    char res[10][50];
+    char * resStr = new char[200];
+    memset(resStr, 0, sizeof(char)*200);
+    strcat(resStr,"/");
+    int i;
+
+    for(i = 0; i < 10 && parentDirSector != -1; i++){
+        delete parentFile;
+        parentFile = new OpenFile(parentDirSector);
+        parentDir->FetchFrom(parentFile);
+
+        strcpy(res[i], parentDir->findNameBySector(subDirSector));
+        DEBUG('D', "[FindPath] i=%d name=%s\n", i, res[i]);
+
+        subDirSector = parentDirSector;
+        parentDirSector = parentDir->Find("..");
+    }
+
+    for(; i > 0; i--){
+        strcat(resStr, res[i-1]);
+        strcat(resStr, "/");
+    }
+
+    return resStr;
 }

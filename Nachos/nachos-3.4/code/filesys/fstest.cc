@@ -91,9 +91,9 @@ Print(char *name) {
     delete[] buffer;
 
     // [debug]
-    printf("\033[36m");
-    fileSystem->Print();
-    printf("\033[0m");
+//    printf("\033[36m");
+//    fileSystem->Print();
+//    printf("\033[0m");
 
     delete openFile;        // close the Nachos file
     return;
@@ -114,7 +114,7 @@ Print(char *name) {
 #define FileName    "TestFile"
 #define Contents    "1234567890"
 #define ContentSize    strlen(Contents)
-#define FileSize    ((int)(ContentSize * 5000))
+#define FileSize    ((int)(ContentSize * 1000))
 
 static void
 FileWrite() {
@@ -184,11 +184,51 @@ PerformanceTest() {
 }
 
 void PathTest(){
-    ASSERT(fileSystem->Create("dirA", SectorSize, dirFile));
-    fileSystem->Print();
+    // mkdir dirA && ls
+    ASSERT(fileSystem->Create("dirA", -1, dirFile));
+    fileSystem->List();
+    // cd dirA && ls
     ASSERT(fileSystem->ChangeDir("dirA"));
-    fileSystem->Print();
+    fileSystem->List();
+    // cd Ha
+    ASSERT(!fileSystem->ChangeDir("Ha"));
+    // cp nachos/nachos-3.4/code/filesys/test/trump trump
+    Copy("nachos/nachos-3.4/code/filesys/test/trump", "trump");
+    // mkdir dirB && ls
+    ASSERT(fileSystem->Create("dirB", -1, dirFile));
+    fileSystem->List();
+    // cd dirB
+    ASSERT(fileSystem->ChangeDir("dirB"));
+    // cp nachos/nachos-3.4/code/filesys/test/small small && ls
+    Copy("nachos/nachos-3.4/code/filesys/test/small", "small");
+    fileSystem->List();
+    // cat small
+    Print("small");
+    // cd ..
     ASSERT(fileSystem->ChangeDir(".."));
-    fileSystem->ChangeDir("Ha");
+    // cd ..
+    ASSERT(fileSystem->ChangeDir(".."));
+    // rm -r dirA && ls
+    fileSystem->Remove("dirA");
+    fileSystem->List();
+}
+
+void readerThread(int which){
+    printf("[readerThread] starting %s\n",currentThread->getName());
+    FileRead();
+}
+
+void writerThread(int which){
+    printf("[writerThread] starting %s\n",currentThread->getName());
+    FileWrite();
+}
+
+void LockTest(){
+    Thread *r1 = new Thread("reader1",1);
+    Thread *r2 = new Thread("reader2",3);
+    Thread *w1 = new Thread("writer1", 2);
+    r1->Fork(readerThread, (void*)1);
+    r2->Fork(readerThread, (void*)3);
+    w1->Fork(writerThread, (void*)2);
 }
 

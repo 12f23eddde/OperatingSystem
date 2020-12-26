@@ -23,7 +23,6 @@
 // of liability and disclaimer of warranty provisions.
 
 #include "copyright.h"
-
 #include "system.h"
 #include "filehdr.h"
 
@@ -157,7 +156,7 @@ FileHeader::FetchFrom(int sector, char* dest) {
     if (!dest){
         synchDisk->ReadSector(sector, (char *) this);
     }else{
-        DEBUG('D', "[FetchFrom] Reading idt from sector %d at dest %p\n", sector, dest);
+        DEBUG('f', "[FetchFrom] Reading idt from sector %d at dest %p\n", sector, dest);
         synchDisk->ReadSector(sector, dest);
     }
 
@@ -175,7 +174,7 @@ FileHeader::WriteBack(int sector, char* dest) {
     if(!dest) {
         synchDisk->WriteSector(sector, (char *) this);
     }else{
-        DEBUG('D', "[WriteBack] Writing idt to sector %d at dest %p\n", sector, dest);
+        DEBUG('f', "[WriteBack] Writing idt to sector %d at dest %p\n", sector, dest);
         synchDisk->WriteSector(sector, dest);
     }
 }
@@ -300,4 +299,191 @@ void IndirectTable::printSectors(int cnt) {
         printf("%d,", dataSectors[i]);
     }
     printf("]\n");
+}
+
+// [lab5] Allocate new Sectors, update Header
+// 0 No Need -1 Error >0 Success
+// Note: write Back by caller
+int FileHeader::ScaleUp(BitMap *freeMap, int newSize){
+    int currSectors = numSectors;
+    int newSectors = divRoundUp(newSize, SectorSize) - numSectors;
+    if (newSectors <= 0) {
+        DEBUG('D', "[ScaleUp] No need for extension (%d/%d)\n", newSectors+currSectors, currSectors);
+        numBytes = newSize;  // still updating size
+        return 0;
+    }
+    DEBUG('D', "[ScaleUp] Extending (%d/%d)\n", newSectors+currSectors, currSectors);
+    // direct indexing
+    int remainedSectors = currSectors + newSectors;
+    for (int i = 0; i < min(currSectors + newSectors, NumDirect - 2); i++){
+        if (remainedSectors <= newSectors) {
+            dataSectors[i] = freeMap->Find();
+            DEBUG('f', "[ScaleUp] Allocating sector %d, i=%d\n", dataSectors[i], i);
+            fileSystem->Print(); // [debug]
+        }
+        remainedSectors --;
+    }
+
+    // [NOTE!] numSectors MUST BE RIGHT, else catastrophic mem errors can happen
+    // dataSectors[NumDirect - 2]: indirect indexing
+    if(remainedSectors > 0){
+        // alloc sector from disk
+        IndirectTable * idt = new IndirectTable;
+        int idtSector;
+
+        if (currSectors <= NumDirect - 2) {  // 1st idt doesn't exist
+            if ((idtSector = freeMap->Find()) == -1) return -1;  // no more space
+            dataSectors[ NumDirect - 2 ] = idtSector;
+            DEBUG('D', "[ScaleUp] IDT1: Creating IDT sector=%d\n", idtSector);
+        }else{
+            idtSector = dataSectors[ NumDirect - 2 ];
+            FetchFrom(idtSector, (char*) idt);
+            DEBUG('D', "[ScaleUp] IDT1: Using IDT sector=%d\n", idtSector);
+        }
+
+        // set val of idt (stop alloc if remainedSectors = 0)
+        for(int j = 0; j < NumIndirect && remainedSectors > 0; j++){
+            if (remainedSectors <= newSectors) {
+                idt->dataSectors[j] = freeMap->Find();
+                DEBUG('f', "[ScaleUp] IDT1: Allocating sector %d, i=%d\n", idt->dataSectors[j], j);
+            }
+            remainedSectors --;
+        }
+        // write changes to disk
+        WriteBack(idtSector, (char*) idt);
+    }
+
+    // dataSectors[NumDirect - 1]: indirect indexing
+    if(remainedSectors > 0){
+        // alloc sector from disk
+        IndirectTable * idt = new IndirectTable;
+        int idtSector;
+
+        if (currSectors <= NumDirect - 2 + NumIndirect) {  // 2nd idt doesn't exist
+            if ((idtSector = freeMap->Find()) == -1) return -1;  // no more space
+            dataSectors[ NumDirect - 1 ] = idtSector;
+            DEBUG('D', "[ScaleUp] IDT2: Creating IDT sector=%d\n", idtSector);
+        }else{
+            idtSector = dataSectors[ NumDirect - 1 ];
+            FetchFrom(idtSector, (char*) idt);
+            DEBUG('D', "[ScaleUp] IDT2: Using IDT sector=%d\n", idtSector);
+        }
+
+        // set val of idt (stop alloc if remainedSectors = 0)
+        for(int j = 0; j < NumIndirect && remainedSectors > 0; j++){
+            if (remainedSectors <= newSectors) {
+                idt->dataSectors[j] = freeMap->Find();
+                DEBUG('f', "[ScaleUp] IDT2: Allocating sector %d, i=%d\n", idt->dataSectors[j], j);
+            }
+            remainedSectors --;
+        }
+        // write changes to disk
+        WriteBack(idtSector, (char*) idt);
+    }
+
+    // update header
+    numSectors = currSectors + newSectors;
+    numBytes = newSize;
+    return newSectors;
+}
+
+HeaderTableEntry::HeaderTableEntry() {
+    hdrSector = -1;
+    inUse = false;
+
+    readerCount = 0;
+    readerLock = new Lock("rc_lock");
+    fileLock = new Lock("file_lock");
+}
+
+HeaderTableEntry::~HeaderTableEntry() {
+    delete readerLock;
+    delete fileLock;
+}
+
+
+// [lab5] alloc headerTable
+HeaderTable::HeaderTable(int size) {
+    // naive checking of tableSize
+    ASSERT(size > 0 && size < NumSectors);
+    tableSize = size;
+    table = new HeaderTableEntry[tableSize];
+}
+
+HeaderTable::~HeaderTable() {
+    delete table;
+}
+
+// [lab5] find table index by hdrSector
+int HeaderTable::findIndex(int sector) {
+    for(int i = 0; i < tableSize; i++){
+        if(table[i].inUse && table[i].hdrSector == sector) return i;
+    }
+    return -1;
+}
+
+int HeaderTable::fileOpen(int sector) {
+    if (findIndex(sector) != -1) {
+        DEBUG('H', "[fileOpen] exist hdrTable[%d]=%d\n", findIndex(sector), sector);
+        return -1;  // already exists
+    }
+    for(int i = 0; i < tableSize; i++){
+        if(!table[i].inUse){
+            table[i].inUse = true;
+            table[i].hdrSector = sector;
+            DEBUG('H', "[fileOpen] alloc hdrTable[%d]=%d\n", i, sector);
+            return i;
+        }
+    }
+    printf("\033[31m[fileOpen] HeaderTable Full\n\033[0m");
+    return -1;
+}
+
+void HeaderTable::fileClose(int sector) {
+    int index = findIndex(sector);
+    DEBUG('H', "[fileClose] close hdrTable[%d]=%d\n", index, sector);
+    ASSERT(0 <= index && index <= tableSize);
+//    table[index].inUse = false;
+}
+
+// [lab5] Take this as a reader/writer problem
+// allow multiple readers
+void HeaderTable::beforeRead(int sector) {
+    int index = findIndex(sector);
+    ASSERT(index >= 0);
+    table[index].readerLock->Acquire();
+    table[index].readerCount++;
+    DEBUG('H', "[beforeRead] sector=%d rc=%d\n", sector, table[index].readerCount);
+    if(table[index].readerCount == 1){
+        // is 1st reader
+        table[index].fileLock->Acquire();
+    }
+    table[index].readerLock->Release();
+}
+
+void HeaderTable::afterRead(int sector) {
+    int index = findIndex(sector);
+    ASSERT(index >= 0);
+    table[index].readerLock->Acquire();
+    table[index].readerCount--;
+    DEBUG('H', "[AfterRead] sector=%d rc=%d\n", sector, table[index].readerCount);
+    if(table[index].readerCount == 0){
+        // is last reader
+        table[index].fileLock->Release();
+    }
+    table[index].readerLock->Release();
+}
+
+void HeaderTable::beforeWrite(int sector) {
+    int index = findIndex(sector);
+    ASSERT(index >= 0);
+    DEBUG('H', "[beforeWrite] sector=%d\n", sector);
+    table[index].fileLock->Acquire();
+}
+
+void HeaderTable::afterWrite(int sector) {
+    int index = findIndex(sector);
+    ASSERT(index >= 0);
+    DEBUG('H', "[afterWrite] sector=%d\n", sector);
+    table[index].fileLock->Release();
 }

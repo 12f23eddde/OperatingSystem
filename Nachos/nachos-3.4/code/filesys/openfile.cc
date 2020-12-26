@@ -11,14 +11,22 @@
 // All rights reserved.  See copyright.h for copyright notice and limitation 
 // of liability and disclaimer of warranty provisions.
 
+
+// just 4 code hint
+//#define FILESYS_NEEDED
+
+
 #include "copyright.h"
 #include "filehdr.h"
 #include "openfile.h"
+#include "filesys.h"
 #include "system.h"
 
 #ifdef HOST_SPARC
 #include <strings.h>
 #endif
+
+
 
 //----------------------------------------------------------------------
 // OpenFile::OpenFile
@@ -36,6 +44,9 @@ OpenFile::OpenFile(int sector) {
     hdrSector = sector;  // [lab5] mark hdr sector
     hdr->timeAccessed = stats->totalTicks;  // [lab5] set file attributes
     hdr->WriteBack(hdrSector);  // [lab5] write changes back to disk
+
+    // [lab5] alloc hdrTable
+    hdrTable->fileOpen(hdrSector);
 }
 
 //----------------------------------------------------------------------
@@ -44,6 +55,9 @@ OpenFile::OpenFile(int sector) {
 //----------------------------------------------------------------------
 
 OpenFile::~OpenFile() {
+    // [lab5] dealloc hdrTable
+    hdrTable->fileClose(hdrSector);
+
     delete hdr;
 }
 
@@ -126,6 +140,9 @@ OpenFile::ReadAt(char *into, int numBytes, int position) {
     DEBUG('f', "Reading %d bytes at %d, from file of length %d.\n",
           numBytes, position, fileLength);
 
+    // [lab5] before read
+    hdrTable->beforeRead(hdrSector);
+
     firstSector = divRoundDown(position, SectorSize);
     lastSector = divRoundDown(position + numBytes - 1, SectorSize);
     numSectors = 1 + lastSector - firstSector;
@@ -144,6 +161,9 @@ OpenFile::ReadAt(char *into, int numBytes, int position) {
     hdr->timeAccessed = stats->totalTicks;
     hdr->WriteBack(hdrSector);  // [lab5] write changes back to disk
 
+    // [lab5] after read
+    hdrTable->afterRead(hdrSector);
+
     return numBytes;
 }
 
@@ -154,12 +174,25 @@ OpenFile::WriteAt(char *from, int numBytes, int position) {
     bool firstAligned, lastAligned;
     char *buf;
 
-    if ((numBytes <= 0) || (position >= fileLength))
+    if ((numBytes <= 0))
         return 0;                // check request
-    if ((position + numBytes) > fileLength)
-        numBytes = fileLength - position;
+    if ((position + numBytes) > fileLength){  // [lab5] Modified to support file extension
+        OpenFile *freeMapFile = new OpenFile(FreeMapSector);
+        BitMap *freeMap = new BitMap(NumSectors);
+        freeMap->FetchFrom(freeMapFile);
+        // alloc new sectors
+        hdr->ScaleUp(freeMap, (position + numBytes));
+        hdr->WriteBack(hdrSector);
+        freeMap->WriteBack(freeMapFile);
+        delete freeMap;
+        delete freeMapFile;
+    }
+//        numBytes = fileLength - position;
     DEBUG('f', "Writing %d bytes at %d, from file of length %d.\n",
           numBytes, position, fileLength);
+
+    // [lab5] before write
+    hdrTable->beforeWrite(hdrSector);
 
     firstSector = divRoundDown(position, SectorSize);
     lastSector = divRoundDown(position + numBytes - 1, SectorSize);
@@ -189,6 +222,9 @@ OpenFile::WriteAt(char *from, int numBytes, int position) {
     // [lab5] set file attributes
     hdr->timeAccessed = hdr->timeModified = stats->totalTicks;
     hdr->WriteBack(hdrSector);  // [lab5] write changes back to disk
+
+    // [lab5] after write
+    hdrTable->afterWrite(hdrSector);
 
     return numBytes;
 }

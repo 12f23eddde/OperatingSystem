@@ -148,3 +148,49 @@ Console::PutChar(char ch)
     interrupt->Schedule(ConsoleWriteDone, (int)this, ConsoleTime,
 					ConsoleWriteInt);
 }
+
+// [lab5] SynchConsole wraps console
+// Take this as an bounded-buffer problem
+// buffer size = 1 (Console buffer is only 1 char), slot=1, element=0
+SynchConsole::SynchConsole(char *readFile, char *writeFile) {
+    console = new Console(readFile, writeFile, readAvail, writeDone, (int)this);
+    wait_element = new Semaphore("sc_wait_element", 0); // 0 element
+    wait_slot = new Semaphore("sc_wait_slot", 1); // 1 slot
+    lock = new Lock("sc_lock");
+}
+
+SynchConsole::~SynchConsole() {
+    delete console;
+    delete wait_element;        // To synchronize requesting thread
+    delete wait_slot;
+    delete lock;
+}
+// consumer start
+char SynchConsole::GetChar() {
+    DEBUG('C', "[GetChar] waiting...\n");
+    lock->Acquire();
+    wait_element->P();
+    char res = console->GetChar();
+    DEBUG('C', "[GetChar] %c\n", res);
+    lock->Release();
+    return res;
+}
+// consumer finish (staticmethod)
+void SynchConsole::writeDone(int ptr) {
+    SynchConsole *sc = (SynchConsole*) ptr;
+    sc->wait_slot->V();
+}
+// producer start
+void SynchConsole::PutChar(char ch) {
+    DEBUG('C', "[PutChar] waiting...\n");
+    lock->Acquire();
+    wait_slot->P();
+    DEBUG('C', "[PutChar] %c\n", ch);
+    console->PutChar(ch);
+    lock->Release();
+}
+// producer finish (staticmethod)
+void SynchConsole::readAvail(int ptr){
+    SynchConsole *sc = (SynchConsole*) ptr;
+    sc->wait_element->V();
+}

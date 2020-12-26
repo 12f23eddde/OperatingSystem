@@ -72,6 +72,14 @@ public:
     //  of the directory -- all the file
     //  names and their contents.
 
+    // [lab5]
+    void RemoveAll(BitMap *freeMap);    // [lab5] Remove all file in current directory
+
+    char *findPath();
+    char *findNameBySector(int sector);
+
+    int hdrSector = -1;  // Where I Am?
+
 private:
     int tableSize;            // Number of directory entries
     DirectoryEntry *table;        // Table of pairs:

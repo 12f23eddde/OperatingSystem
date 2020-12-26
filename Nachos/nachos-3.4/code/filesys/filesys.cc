@@ -53,19 +53,6 @@
 
 #include "system.h"
 
-// Sectors containing the file headers for the bitmap of free sectors,
-// and the directory of files.  These file headers are placed in well-known
-// sectors, so that they can be located on boot-up.
-#define FreeMapSector        0
-#define DirectorySector    1
-
-// Initial file sizes for the bitmap and directory; until the file system
-// supports extensible files, the directory size sets the maximum number
-// of files that can be loaded onto the disk.
-#define FreeMapFileSize    (NumSectors / BitsInByte)
-#define NumDirEntries        10
-#define DirectoryFileSize    (sizeof(DirectoryEntry) * NumDirEntries)
-
 //----------------------------------------------------------------------
 // FileSystem::FileSystem
 // 	Initialize the file system.  If format = TRUE, the disk has
@@ -220,35 +207,27 @@ FileSystem::Create(char *name, int initialSize, FileType fileType) {
                 DEBUG('D', "[Create] Creating file %s (%s), size %d, time %d\n",
                         name, FileTypeStr[hdr->fileType], initialSize, hdr->timeCreated);
 
-                // Init a new Directory
-                if(fileType == dirFile){
-                    // new dir (sec=pwd)
-                    Directory *directory = new Directory(NumDirEntries, directoryFile->hdrSector);
-                    FileHeader *dirHdr = new FileHeader;
-                    // alloc 1 sector
-                    int dirSector = freeMap->Find();
-                    ASSERT(dirHdr->Allocate(freeMap, DirectoryFileSize));
-                    // init dirFile on disk
-                    dirHdr->WriteBack(dirSector);
-                    directoryFile = new OpenFile(dirSector);
-                    directory->WriteBack(directoryFile);
-                }
-
                 // everthing worked, flush all changes back to disk
                 hdr->WriteBack(sector);
                 directory->WriteBack(directoryFile);
                 freeMap->WriteBack(freeMapFile);
+
+                // [lab5] Init a new Directory
+                if(fileType == dirFile){
+                    OpenFile* tempDirFile = new OpenFile(sector);
+                    Directory *newDir = new Directory(NumDirEntries, directoryFile->hdrSector);
+                    // Got to write back header before open
+                    newDir->WriteBack(tempDirFile);
+
+                    delete newDir;
+                    delete tempDirFile;
+                }
             }
             delete hdr;
         }
         delete freeMap;
     }
     delete directory;
-
-    // [debug]
-//    printf("\033[36m");
-//    this->Print();
-//    printf("\033[0m");
 
     return success;
 }
@@ -294,9 +273,10 @@ FileSystem::Open(char *name) {
 
 bool
 FileSystem::Remove(char *name) {
-    Directory *directory;
+    Directory *directory, *subDir = NULL;
     BitMap *freeMap;
     FileHeader *fileHdr;
+    OpenFile * subFile = NULL;
     int sector;
 
     directory = new Directory(NumDirEntries);
@@ -304,6 +284,7 @@ FileSystem::Remove(char *name) {
     sector = directory->Find(name);
     if (sector == -1) {
         delete directory;
+        printf("[Remove] %s not found in pwd\n", name);
         return FALSE;             // file not found
     }
     fileHdr = new FileHeader;
@@ -312,12 +293,27 @@ FileSystem::Remove(char *name) {
     freeMap = new BitMap(NumSectors);
     freeMap->FetchFrom(freeMapFile);
 
+    // [lab5] Dealloc folder
+    if(fileHdr->fileType == dirFile){
+        subFile = new OpenFile(sector);
+        subDir = new Directory(NumDirEntries);
+        subDir->FetchFrom(subFile);
+        // recursively remove subdir
+        subDir->RemoveAll(freeMap);
+    }
+
     fileHdr->Deallocate(freeMap);        // remove data blocks
     freeMap->Clear(sector);            // remove header block
     directory->Remove(name);
 
+    // submit result
     freeMap->WriteBack(freeMapFile);        // flush to disk
     directory->WriteBack(directoryFile);        // flush to disk
+
+    DEBUG('D',"[Remove] Removed %s\n", name);
+
+    delete subFile;
+    delete subDir;
     delete fileHdr;
     delete directory;
     delete freeMap;
@@ -366,6 +362,10 @@ FileSystem::Print() {
     freeMap->FetchFrom(freeMapFile);
     freeMap->Print();
 
+    printf("PWD file header:\n");
+    dirHdr->FetchFrom(directoryFile->hdrSector);
+    dirHdr->Print();
+
     directory->FetchFrom(directoryFile);
     directory->Print();
 
@@ -377,18 +377,19 @@ FileSystem::Print() {
 
 // [lab5] ChangeDir: only supports relative path
 bool FileSystem::ChangeDir(char *name) {
+    DEBUG('D', "[ChangeDir] cd to %s\n", name);
     // Find target from current Dir
     Directory *dir = new Directory(NumDirEntries);
     dir->FetchFrom(directoryFile);
     int targetSector = dir->Find(name);
     if (targetSector == -1) {
-        DEBUG('D', "[changeDir] %s not found in pwd\n", name);
+        printf("[changeDir] %s not found in pwd\n", name);
         return FALSE; // Not Found
     }
     FileHeader* tempHdr = new FileHeader;
     tempHdr->FetchFrom(targetSector);
     if(tempHdr->fileType!=dirFile){
-        DEBUG('D', "[changeDir] %s is not a dir\n", name);
+        printf("[changeDir] %s is not a dir\n", name);
         return FALSE; // Not Found
     }
     // Close current file then open new dirFile
@@ -398,5 +399,111 @@ bool FileSystem::ChangeDir(char *name) {
         printf("\033[31m[ChangeDir] Failed to load target sector %d\n\033[0m", targetSector);
         ASSERT(FALSE);
     }
+    // [debug]
+//    dir->FetchFrom(directoryFile);
+//    printf("\033[36m");
+//    dir->Print();
+//    printf("\033[0m");
     return TRUE;
+}
+
+HeaderTableEntry::HeaderTableEntry() {
+    hdrSector = -1;
+    inUse = false;
+
+    readerCount = 0;
+    readerLock = new Lock("rc_lock");
+    fileLock = new Lock("file_lock");
+}
+
+HeaderTableEntry::~HeaderTableEntry() {
+    delete readerLock;
+    delete fileLock;
+}
+
+
+// [lab5] alloc headerTable
+HeaderTable::HeaderTable(int size) {
+    // naive checking of tableSize
+    ASSERT(size > 0 && size < NumSectors);
+    tableSize = size;
+    table = new HeaderTableEntry[tableSize];
+}
+
+HeaderTable::~HeaderTable() {
+    delete table;
+}
+
+// [lab5] find table index by hdrSector
+int HeaderTable::findIndex(int sector) {
+    for(int i = 0; i < tableSize; i++){
+        if(table[i].inUse && table[i].hdrSector == sector) return i;
+    }
+    return -1;
+}
+
+int HeaderTable::fileOpen(int sector) {
+    if (findIndex(sector) != -1) {
+        DEBUG('H', "[fileOpen] exist hdrTable[%d]=%d\n", findIndex(sector), sector);
+        return -1;  // already exists
+    }
+    for(int i = 0; i < tableSize; i++){
+        if(!table[i].inUse){
+            table[i].inUse = true;
+            table[i].hdrSector = sector;
+            DEBUG('H', "[fileOpen] alloc hdrTable[%d]=%d\n", i, sector);
+            return i;
+        }
+    }
+    printf("\033[31m[fileOpen] HeaderTable Full\n\033[0m");
+    return -1;
+}
+
+void HeaderTable::fileClose(int sector) {
+    int index = findIndex(sector);
+    DEBUG('H', "[fileClose] close hdrTable[%d]=%d\n", index, sector);
+    ASSERT(0 <= index && index <= tableSize);
+//    table[index].inUse = false;
+}
+
+// [lab5] Take this as a reader/writer problem
+// allow multiple readers
+void HeaderTable::beforeRead(int sector) {
+    int index = findIndex(sector);
+    ASSERT(index >= 0);
+    table[index].readerLock->Acquire();
+    table[index].readerCount++;
+    DEBUG('H', "[beforeRead] sector=%d rc=%d\n", sector, table[index].readerCount);
+    if(table[index].readerCount == 1){
+        // is 1st reader
+        table[index].fileLock->Acquire();
+    }
+    table[index].readerLock->Release();
+}
+
+void HeaderTable::afterRead(int sector) {
+    int index = findIndex(sector);
+    ASSERT(index >= 0);
+    table[index].readerLock->Acquire();
+    table[index].readerCount--;
+    DEBUG('H', "[AfterRead] sector=%d rc=%d\n", sector, table[index].readerCount);
+    if(table[index].readerCount == 0){
+        // is last reader
+        table[index].fileLock->Release();
+    }
+    table[index].readerLock->Release();
+}
+
+void HeaderTable::beforeWrite(int sector) {
+    int index = findIndex(sector);
+    ASSERT(index >= 0);
+    DEBUG('H', "[beforeWrite] sector=%d\n", sector);
+    table[index].fileLock->Acquire();
+}
+
+void HeaderTable::afterWrite(int sector) {
+    int index = findIndex(sector);
+    ASSERT(index >= 0);
+    DEBUG('H', "[afterWrite] sector=%d\n", sector);
+    table[index].fileLock->Release();
 }

@@ -119,3 +119,13 @@ ConsoleTest (char *in, char *out)
 	if (ch == 'q') return;  // if q, quit
     }
 }
+
+// [lab5] SynchConsole Test
+void SynchConsoleTest (char* in, char* out){
+    SynchConsole* sc = new SynchConsole(in, out);
+    char ch = sc->GetChar();
+    while(ch != 'q'){
+        sc->PutChar(ch);
+        ch = sc->GetChar();
+    }
+}

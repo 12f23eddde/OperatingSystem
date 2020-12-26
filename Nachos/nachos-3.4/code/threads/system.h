@@ -40,9 +40,10 @@ void printThreadsList();
 extern Machine* machine;	// user program memory and registers
 #endif
 
-#ifdef FILESYS_NEEDED 		// FILESYS or FILESYS_STUB 
+#ifdef FILESYS_NEEDED 		// FILESYS or FILESYS_STUB
 #include "filesys.h"
-extern FileSystem  *fileSystem;
+extern FileSystem *fileSystem;
+extern HeaderTable *hdrTable;
 #endif
 
 #ifdef FILESYS

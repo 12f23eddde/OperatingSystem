@@ -72,7 +72,7 @@ class Lock {
     void Acquire(); // these are the only operations on a lock
     void Release(); // they are both *atomic*
 
-    bool isHeldByCurrentThread();	// true if the current thread
+//    bool isHeldByCurrentThread();	// true if the current thread
 					// holds this lock.  Useful for
 					// checking in Release, and in
 					// Condition variable ops below.
@@ -80,7 +80,7 @@ class Lock {
   private:
     char* name;				// for debugging
     Semaphore* mutex;  // [lab3] ptr to Semaphore
-    Thread* owner;  // [lab3] used in isHeldByCurrentThread()
+//    Thread* owner;  // [lab3] used in isHeldByCurrentThread()
 };
 
 // The following class defines a "condition variable".  A condition
