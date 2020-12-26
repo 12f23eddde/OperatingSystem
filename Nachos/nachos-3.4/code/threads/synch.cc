@@ -23,6 +23,7 @@
 
 #include "copyright.h"
 #include "synch.h"
+#include "thread.h"
 #include "system.h"
 
 //----------------------------------------------------------------------
@@ -104,7 +105,7 @@ Semaphore::V()
 Lock::Lock(char* debugName) {
     name = debugName;
     mutex = new Semaphore(debugName, 1);  // init with val 1
-    owner = NULL;
+//    owner = NULL;
 }
 
 Lock::~Lock() {
@@ -119,7 +120,7 @@ void Lock::Acquire() {
     IntStatus oldLevel = interrupt->SetLevel(IntOff);
     // begin critical zone
     mutex->P();
-    owner = currentThread;
+//    owner = currentThread;
     // end critical zone
     (void) interrupt->SetLevel(oldLevel);
     DEBUG('-t', "Acquired lock\n");
@@ -133,15 +134,15 @@ void Lock::Release() {
     IntStatus oldLevel = interrupt->SetLevel(IntOff);
     // begin critical zone
     mutex->V();
-    owner = NULL;
+//    owner = NULL;
     // end critical zone
     (void) interrupt->SetLevel(oldLevel);
     DEBUG('-t', "Released lock\n");
 }
 
-bool Lock::isHeldByCurrentThread() {
-    return currentThread == owner;
-}
+//bool Lock::isHeldByCurrentThread() {
+//    return currentThread == owner;
+//}
 
 Condition::Condition(char* debugName) { 
     name = debugName;
@@ -173,7 +174,7 @@ void Condition::Signal(Lock* conditionLock) {
     IntStatus oldLevel = interrupt->SetLevel(IntOff);
     // begin critical zone
     
-    ASSERT(conditionLock->isHeldByCurrentThread());
+//    ASSERT(conditionLock->isHeldByCurrentThread());
     // from Semaphore::V()
     thread = (Thread *)queue->Remove();
     if (thread != NULL)	 { 
@@ -189,7 +190,7 @@ void Condition::Broadcast(Lock* conditionLock) {
     Thread* thread;
     IntStatus oldLevel = interrupt->SetLevel(IntOff);
     // begin critical zone
-    ASSERT(conditionLock->isHeldByCurrentThread());
+//    ASSERT(conditionLock->isHeldByCurrentThread());
     // from Semaphore::P()
     thread = (Thread*) queue->Remove();
     while (thread != NULL)	 {

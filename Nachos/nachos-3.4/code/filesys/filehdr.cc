@@ -319,7 +319,7 @@ int FileHeader::ScaleUp(BitMap *freeMap, int newSize){
         if (remainedSectors <= newSectors) {
             dataSectors[i] = freeMap->Find();
             DEBUG('f', "[ScaleUp] Allocating sector %d, i=%d\n", dataSectors[i], i);
-            fileSystem->Print(); // [debug]
+//            fileSystem->Print(); // [debug]
         }
         remainedSectors --;
     }

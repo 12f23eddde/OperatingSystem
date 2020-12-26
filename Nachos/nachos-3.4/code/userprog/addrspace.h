@@ -40,7 +40,6 @@ class AddrSpace {
     
     // [lab4]
     char* vmname;
-
     OpenFile* vm;
 
   private:

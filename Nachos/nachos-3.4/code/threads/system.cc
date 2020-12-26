@@ -174,10 +174,10 @@ Initialize(int argc, char **argv)
 #endif
 
 #ifdef FILESYS_NEEDED
-    fileSystem = new FileSystem(format);
 #ifdef USE_HDRTABLE
-    hdrTable = new HeaderTable();
+    hdrTable = new HeaderTable(20);
 #endif
+    fileSystem = new FileSystem(format);
 #endif
 
 #ifdef NETWORK

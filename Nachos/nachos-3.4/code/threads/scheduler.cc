@@ -183,7 +183,7 @@ void Scheduler::handleThreadTimeUp(int ptr_int){
     if (curr_sche->policy!=ROUND_ROBIN){
         if (interrupt->getStatus() != IdleMode) {
             // Not on RR, act like TimerInterruptHandler
-            printf("[handler] context switch (non-rr) \n");
+            DEBUG('S', "[handler] context switch (non-rr) \n");
             interrupt->YieldOnReturn();
         }
         return;
@@ -193,7 +193,7 @@ void Scheduler::handleThreadTimeUp(int ptr_int){
     if(passedDuration >= curr_sche->switchDuration){
         /* from interrupt.cc */
         if (interrupt->getStatus() != IdleMode) {
-            printf("[handler] context switch (rr) duration=%d\n", passedDuration);
+            DEBUG('S', "[handler] context switch (rr) duration=%d\n", passedDuration);
             interrupt->YieldOnReturn();
         }
     }

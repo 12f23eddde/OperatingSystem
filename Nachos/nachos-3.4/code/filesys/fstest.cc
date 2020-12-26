@@ -123,10 +123,11 @@ FileWrite() {
 
     printf("Sequential write of %d byte file, in %d byte chunks\n",
            FileSize, ContentSize);
-    if (!fileSystem->Create(FileName, 0)) {
-        printf("Perf test: can't create %s\n", FileName);
-        return;
-    }
+    fileSystem->Create(FileName, 0);
+//    if (!fileSystem->Create(FileName, 0)) {
+//        printf("Perf test: can't create %s\n", FileName);
+//        return;
+//    }
     openFile = fileSystem->Open(FileName);
     if (openFile == NULL) {
         printf("Perf test: unable to open %s\n", FileName);
@@ -224,11 +225,13 @@ void writerThread(int which){
 }
 
 void LockTest(){
-    Thread *r1 = new Thread("reader1",1);
-    Thread *r2 = new Thread("reader2",3);
-    Thread *w1 = new Thread("writer1", 2);
-    r1->Fork(readerThread, (void*)1);
-    r2->Fork(readerThread, (void*)3);
+    if (!fileSystem->Create(FileName, FileSize)) {
+        printf("Perf test: can't create %s\n", FileName);
+        return;
+    }
+    Thread *w1 = new Thread("writer1");
+    Thread *r1 = new Thread("reader1");
     w1->Fork(writerThread, (void*)2);
+    r1->Fork(readerThread, (void*)1);
 }
 

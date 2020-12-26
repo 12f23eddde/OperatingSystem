@@ -18,6 +18,7 @@
 
 #include "copyright.h"
 #include "post.h"
+#include "thread.h"  // [lab5]
 #ifdef HOST_SPARC
 #include <strings.h>
 #endif
