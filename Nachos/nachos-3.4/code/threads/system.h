@@ -43,7 +43,9 @@ extern Machine* machine;	// user program memory and registers
 #ifdef FILESYS_NEEDED 		// FILESYS or FILESYS_STUB
 #include "filesys.h"
 extern FileSystem *fileSystem;
-extern HeaderTable *hdrTable;
+  #ifdef USE_HDRTABLE
+    extern HeaderTable *hdrTable;
+  #endif
 #endif
 
 #ifdef FILESYS

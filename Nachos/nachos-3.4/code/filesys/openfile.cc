@@ -46,7 +46,9 @@ OpenFile::OpenFile(int sector) {
     hdr->WriteBack(hdrSector);  // [lab5] write changes back to disk
 
     // [lab5] alloc hdrTable
+#ifdef USE_HDRTABLE
     hdrTable->fileOpen(hdrSector);
+#endif
 }
 
 //----------------------------------------------------------------------
@@ -55,8 +57,10 @@ OpenFile::OpenFile(int sector) {
 //----------------------------------------------------------------------
 
 OpenFile::~OpenFile() {
+#ifdef USE_HDRTABLE
     // [lab5] dealloc hdrTable
     hdrTable->fileClose(hdrSector);
+#endif
 
     delete hdr;
 }
@@ -139,9 +143,10 @@ OpenFile::ReadAt(char *into, int numBytes, int position) {
         numBytes = fileLength - position;
     DEBUG('f', "Reading %d bytes at %d, from file of length %d.\n",
           numBytes, position, fileLength);
-
+#ifdef USE_HDRTABLE
     // [lab5] before read
     hdrTable->beforeRead(hdrSector);
+#endif
 
     firstSector = divRoundDown(position, SectorSize);
     lastSector = divRoundDown(position + numBytes - 1, SectorSize);
@@ -160,10 +165,10 @@ OpenFile::ReadAt(char *into, int numBytes, int position) {
     // [lab5] set file attributes
     hdr->timeAccessed = stats->totalTicks;
     hdr->WriteBack(hdrSector);  // [lab5] write changes back to disk
-
+#ifdef USE_HDRTABLE
     // [lab5] after read
     hdrTable->afterRead(hdrSector);
-
+#endif
     return numBytes;
 }
 
@@ -190,10 +195,10 @@ OpenFile::WriteAt(char *from, int numBytes, int position) {
 //        numBytes = fileLength - position;
     DEBUG('f', "Writing %d bytes at %d, from file of length %d.\n",
           numBytes, position, fileLength);
-
+#ifdef USE_HDRTABLE
     // [lab5] before write
     hdrTable->beforeWrite(hdrSector);
-
+#endif
     firstSector = divRoundDown(position, SectorSize);
     lastSector = divRoundDown(position + numBytes - 1, SectorSize);
     numSectors = 1 + lastSector - firstSector;
@@ -222,10 +227,10 @@ OpenFile::WriteAt(char *from, int numBytes, int position) {
     // [lab5] set file attributes
     hdr->timeAccessed = hdr->timeModified = stats->totalTicks;
     hdr->WriteBack(hdrSector);  // [lab5] write changes back to disk
-
+#ifdef USE_HDRTABLE
     // [lab5] after write
     hdrTable->afterWrite(hdrSector);
-
+#endif
     return numBytes;
 }
 

@@ -38,7 +38,6 @@
 #include "copyright.h"
 #include "openfile.h"
 #include "filehdr.h"
-#include "synch.h"
 
 #ifdef FILESYS_STUB        // Temporarily implement file system calls as
 // calls to UNIX, until the real file system
@@ -107,45 +106,6 @@ private:
     OpenFile *freeMapFile;        // Bit map of free disk blocks,
     // represented as a file
     OpenFile *directoryFile;        // [lab5] Now directoryFile is pwd, not root
-};
-
-struct HeaderTableEntry {
-    // [lab5] manually alloc all locks & semaphores
-    HeaderTableEntry();
-    ~HeaderTableEntry();
-
-    int hdrSector;
-    bool inUse;
-
-    // [lab5] reader/writer
-    int readerCount;
-    Lock *readerLock;
-    Lock *fileLock;
-    // [lab5] safe delete
-//    int refCount;
-//    Lock *refLock;
-};
-
-class HeaderTable {
-public:
-    HeaderTable(int size);
-    ~HeaderTable();
-
-    // called by reader, parameter is hdrSector
-    void beforeRead(int sector);
-    void afterRead(int sector);
-
-    // called by writer, parameter is hdrSector
-    void beforeWrite(int sector);
-    void afterWrite(int sector);
-
-    int fileOpen(int sector);
-    void fileClose(int sector);
-    int findIndex(int sector);
-
-private:
-    int tableSize;
-    HeaderTableEntry *table;
 };
 
 #endif // FILESYS
