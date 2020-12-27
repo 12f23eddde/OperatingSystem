@@ -128,6 +128,11 @@ FileSystem::FileSystem(bool format) {
             delete mapHdr;
             delete dirHdr;
         }
+
+        // [lab5] pipe
+        FileHeader *pipeHdr = new FileHeader;
+        freeMap->Mark(PipeSector);
+        pipeHdr->WriteBack(PipeSector);
     } else {
         // if we are not formatting the disk, just open the files representing
         // the bitmap and directory; these are left open while Nachos is running
@@ -301,6 +306,10 @@ FileSystem::Remove(char *name) {
         // recursively remove subdir
         subDir->RemoveAll(freeMap);
     }
+#ifdef USE_HDRTABLE
+    // [lab5] safe delete
+    hdrTable->fileRemove(sector);
+#endif
 
     fileHdr->Deallocate(freeMap);        // remove data blocks
     freeMap->Clear(sector);            // remove header block
@@ -407,6 +416,22 @@ bool FileSystem::ChangeDir(char *name) {
     return TRUE;
 }
 
+
+// [lab5] pipe
+int FileSystem::ReadPipe(char *into, int numBytes) {
+    OpenFile* pipeFile = new OpenFile(PipeSector);
+    int res = pipeFile->Read(into, numBytes);
+    delete pipeFile;
+    return res;
+}
+
+int FileSystem::WritePipe(char *into, int numBytes) {
+    OpenFile* pipeFile = new OpenFile(PipeSector);
+    int res = pipeFile->Write(into, numBytes);
+    delete pipeFile;
+    return res;
+}
+
 #ifdef USE_HDRTABLE
 HeaderTableEntry::HeaderTableEntry() {
     hdrSector = -1;
@@ -415,11 +440,17 @@ HeaderTableEntry::HeaderTableEntry() {
     readerCount = 0;
     readerLock = new Lock("rc_lock");
     fileLock = new Lock("file_lock");
+
+    refCount = 0;
+    refLock = new Lock("ref_lock");
+    deletableLock = new Lock("del_lock");
 }
 
 HeaderTableEntry::~HeaderTableEntry() {
     delete readerLock;
     delete fileLock;
+    delete refLock;
+    delete deletableLock;
 }
 
 
@@ -444,8 +475,16 @@ int HeaderTable::findIndex(int sector) {
 }
 
 int HeaderTable::fileOpen(int sector) {
-    if (findIndex(sector) != -1) {
-        DEBUG('H', "[fileOpen] exist hdrTable[%d]=%d\n", findIndex(sector), sector);
+    if (sector <= 1) return -1;
+    int index = findIndex(sector);
+    if (index != -1) {
+        DEBUG('H', "[fileOpen] exist hdrTable[%d]=%d\n", index, sector);
+
+        // [lab5] change refcount when open existing file
+        table[index].refLock->Acquire();
+        table[index].refCount++;
+        table[index].refLock->Release();
+
         return -1;  // already exists
     }
     for(int i = 0; i < tableSize; i++){
@@ -453,6 +492,13 @@ int HeaderTable::fileOpen(int sector) {
             table[i].inUse = true;
             table[i].hdrSector = sector;
             DEBUG('H', "[fileOpen] alloc hdrTable[%d]=%d\n", i, sector);
+
+            // [lab5] acquire deletable when create file
+            table[i].refLock->Acquire();
+            table[i].refCount = 1;
+            table[i].deletableLock->Acquire();
+            table[i].refLock->Release();
+
             return i;
         }
     }
@@ -461,15 +507,39 @@ int HeaderTable::fileOpen(int sector) {
 }
 
 void HeaderTable::fileClose(int sector) {
+    if (sector <= 1) return;
     int index = findIndex(sector);
     DEBUG('H', "[fileClose] close hdrTable[%d]=%d\n", index, sector);
     ASSERT(0 <= index && index <= tableSize);
-//    table[index].inUse = false;
+
+    // [lab5] change refcount when closing file
+    table[index].refLock->Acquire();
+    table[index].refCount--;
+    if(table[index].refCount <= 0){
+        table[index].deletableLock->Release();
+        table[index].inUse = false;  // remove entry from table
+    }
+    table[index].refLock->Release();
+}
+
+void HeaderTable::fileRemove(int sector) {
+    DEBUG('H', "[fileRemove] Trying to remove sector=%d\n", sector);
+    if (sector <= 1) return;
+    int index = findIndex(sector);
+    // not found in header table, safe
+    if(index == -1) return;
+    // else wait for other threads to finish
+    table[index].deletableLock->Acquire();
+    // remove entry from table
+    table[index].deletableLock->Release();
+    table[index].inUse = false;
+    DEBUG('H', "[fileRemove] Removed sector=%d\n", sector);
 }
 
 // [lab5] Take this as a reader/writer problem
 // allow multiple readers
 void HeaderTable::beforeRead(int sector) {
+    if (sector <= 1) return;
     int index = findIndex(sector);
     ASSERT(index >= 0);
     table[index].readerLock->Acquire();
@@ -483,6 +553,7 @@ void HeaderTable::beforeRead(int sector) {
 }
 
 void HeaderTable::afterRead(int sector) {
+    if (sector <= 1) return;
     int index = findIndex(sector);
     ASSERT(index >= 0);
     table[index].readerLock->Acquire();
@@ -496,6 +567,7 @@ void HeaderTable::afterRead(int sector) {
 }
 
 void HeaderTable::beforeWrite(int sector) {
+    if (sector <= 1) return;
     int index = findIndex(sector);
     ASSERT(index >= 0);
     DEBUG('H', "[beforeWrite] sector=%d\n", sector);
@@ -503,6 +575,7 @@ void HeaderTable::beforeWrite(int sector) {
 }
 
 void HeaderTable::afterWrite(int sector) {
+    if (sector <= 1) return;
     int index = findIndex(sector);
     ASSERT(index >= 0);
     DEBUG('H', "[afterWrite] sector=%d\n", sector);

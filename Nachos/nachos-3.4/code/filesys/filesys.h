@@ -74,6 +74,9 @@ bool Remove(char *name) { return Unlink(name) == 0; }
 #define FreeMapSector        0
 #define DirectorySector    1
 
+// [lab5] pipe
+#define PipeSector 2
+
 // Initial file sizes for the bitmap and directory; until the file system
 // supports extensible files, the directory size sets the maximum number
 // of files that can be loaded onto the disk.
@@ -103,6 +106,9 @@ public:
 
     bool ChangeDir(char *name);  // [lab5] Only supports relative path
 
+    int ReadPipe(char *into, int numBytes); // [lab5] read pipe
+    int WritePipe(char *into, int numBytes); // [lab5] write pipe
+
 private:
     OpenFile *freeMapFile;        // Bit map of free disk blocks,
     // represented as a file
@@ -123,9 +129,11 @@ struct HeaderTableEntry {
     int readerCount;
     Lock *readerLock;
     Lock *fileLock;
+
     // [lab5] safe delete
-//    int refCount;
-//    Lock *refLock;
+    int refCount;
+    Lock *refLock;
+    Lock *deletableLock;
 };
 
 class HeaderTable {
@@ -143,6 +151,8 @@ public:
 
     int fileOpen(int sector);
     void fileClose(int sector);
+    void fileRemove(int sector);
+
     int findIndex(int sector);
 
     void printTable();

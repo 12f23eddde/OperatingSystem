@@ -63,7 +63,7 @@ extern int testnum;
 
 extern void ThreadTest(void), Copy(char *unixFile, char *nachosFile);
 
-extern void Print(char *file), PerformanceTest(void), PathTest(void), LockTest(void);
+extern void Print(char *file), PerformanceTest(void), PathTest(void), LockTest(void), DeleteTest(void), PipeTest(void);
 
 extern void StartProcess(char *file), ConsoleTest(char *in, char *out), SynchConsoleTest(char *in, char *out);
 
@@ -166,6 +166,10 @@ main(int argc, char **argv) {
                 PathTest();
         } else if (!strcmp(*argv, "--lockTest")) {
                 LockTest();
+        } else if (!strcmp(*argv, "--deleteTest")) {
+                DeleteTest();
+        } else if (!strcmp(*argv, "--pipeTest")) {
+                PipeTest();
         }
 #endif // FILESYS
 #ifdef NETWORK

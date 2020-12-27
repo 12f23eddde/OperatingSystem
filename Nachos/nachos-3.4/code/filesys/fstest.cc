@@ -123,7 +123,7 @@ FileWrite() {
 
     printf("Sequential write of %d byte file, in %d byte chunks\n",
            FileSize, ContentSize);
-    fileSystem->Create(FileName, 0);
+//    fileSystem->Create(FileName, 0);
 //    if (!fileSystem->Create(FileName, 0)) {
 //        printf("Perf test: can't create %s\n", FileName);
 //        return;
@@ -161,11 +161,11 @@ FileRead() {
     for (i = 0; i < FileSize; i += ContentSize) {
         numBytes = openFile->Read(buffer, ContentSize);
         if ((numBytes < 10) || strncmp(buffer, Contents, ContentSize)) {
-            printf("Perf test: unable to read %s\n", FileName);
+            printf("(%s) Perf test: read %d bytes: mismatch from %s\n", currentThread->getName(), numBytes, FileName);
             delete openFile;
             delete[] buffer;
             return;
-        }
+        } else printf("(%s) Perf test: read %d bytes from %s\n", currentThread->getName(), numBytes, FileName);
     }
     delete[] buffer;
     delete openFile;    // close file
@@ -233,5 +233,52 @@ void LockTest(){
     Thread *r1 = new Thread("reader1");
     w1->Fork(writerThread, (void*)2);
     r1->Fork(readerThread, (void*)1);
+    FileRead();
+}
+
+void deleteThread(int which){
+    printf("starting %s\n",currentThread->getName());
+    fileSystem->Remove("Shuwarin");
+    fileSystem->Print();
+}
+
+void closeThread(int ptr){
+    printf("starting %s\n",currentThread->getName());
+    OpenFile *f1 = (OpenFile *) ptr;
+    delete f1;
+    fileSystem->Print();
+}
+
+void DeleteTest(){
+    fileSystem->Create("Shuwarin", 100);
+    OpenFile *f1 = fileSystem->Open("Shuwarin");
+    Thread *d1 = new Thread("delete1");
+    d1->Fork(deleteThread, (void*)0);
+    Thread *c1 = new Thread("close1");
+    c1->Fork(closeThread, (void*) f1);
+    currentThread->Yield();
+}
+
+void readPipe(int numBytes){
+    printf("starting %s\n",currentThread->getName());
+    char* buffer = new char[numBytes];
+    memset(buffer, 0 ,sizeof(char[numBytes]));
+    fileSystem->ReadPipe(buffer, numBytes);
+    printf("[readPipe] %s", buffer);
+    delete[] buffer;
+}
+
+void writePipe(int dummy){
+    printf("starting %s\n",currentThread->getName());
+    char into[30] = "ShuwarinDreaming!\n";
+    fileSystem->WritePipe(into, strlen(into) + 1);
+}
+
+void PipeTest(){
+    Thread *w1 = new Thread("readPipe1");
+    w1->Fork(writePipe, (void*)0);
+    Thread *r1 = new Thread("close1");
+    r1->Fork(readPipe, (void*) 19);
+    currentThread->Yield();
 }
 
