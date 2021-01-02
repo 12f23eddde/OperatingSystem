@@ -1,452 +1,380 @@
-# Lab 1: Thread Mechanism
+#### 任务完成情况
 
-## Exercise 1: Research
+| Exercise 1 | Exercise 2 | Exercise 3 | Exercise 4 |
+|---|---|---|---|
+|Y|Y|Y|Y|
 
-> Difference between Linux PCB and Nachos mechanism
+**Exercise 1  调研**
 
-* Linux has only concept of Process and Nachos has only Thread. (as scheduling unit)
+**1.1** Linux操作系统的PCB实现
 
-### Linux
+注：Linux操作系统并不怎么区分进程与线程，在大量的实现中将它们统称为task。
 
-Basically defined in [include/linux/sched.h](https://github.com/torvalds/linux/blob/master/include/linux/sched.h)
+在Linux的task_struct中大致包含以下信息：
 
-The `task_struct` (process descriptor), is an element in the task list.
+1. task的状态
 
-* Open files
-* Pending signals
-* Internal kernel data
-* Processor state
-* Memory address space with one or more memory mappings
-* Thread(s) of execution
-  * Program counter
-  * Process stack
-  * Set of processor registers
-* Data section containing global variables
-* Program code (text section)
+   在task_struct中有两个变量state， flags来描述task的状态。其中state变量描述变量的大致状态(Running, Interruptible, Uninterruptible, Zombie, Stopped)，而flags变量则描述一些更加细节的状态，用于task的管理——flag例如`PF_USED_MATH`描述task是否需要使用FPU（早期的80387浮点协处理器，现代处理器的SSE/AVX浮点单元等），flags则是这些flag通过位运算叠加的结果。
 
-### Nachos
+2. 内存管理（包括进程地址空间，内存缺页信息等）
 
-That is the `class Thread`. In initial status, Nachos Thread only contain the following information.
+3. task管理
 
-* `int* stackTop; // the current stack pointer`
-* `void *machineState[MachineStateSize]; // all registers except for stackTop`
-* `int* stack; // Bottom of the stack`
-* `ThreadStatus status; // ready, running or blocked`
-* `char* name;`
+   Linux采用了不同的数据结构管理PCB：
 
-#### Links
+   双向链表：`next_task, prev_task`指向链表中前一个、后一个PCB。双向链表的头和尾都是0号进程。
 
-* [Nachos Threads](https://users.cs.duke.edu/~narten/110/nachos/main/node12.html)
-* [Nachos Threads](https://www.ida.liu.se/~TDDI04/material/begguide/roadmap/node12.html)
+   红黑树： `*p_opptr, *p_pptr,*p_cptr,*p_ysptr,*p_osptr`分别代表原始父进程，父进程，子进程，新老兄弟进程。
 
-## Exercise 2: Trace source code
+4. 调度
 
-> Read the following code, understand current Nachos thread mechanism
->
-> * `code/threads/main.cc`
-> * `code/threads/threadtest.cc`
-> * `code/threads/thread.h`
-> * `code/threads/thread.cc`
+   我们注意到linux的task_struct中policy变量代表了几种不同的调度算法（FIFO，CFS， RR等）。事实上，在Linux下运行的程序可以手动设置运行时采用什么调度算法。：
 
-Nachos Thread has 4 states (as `enum ThreadStatus`)
+5. 进程权限（包括创建者的uid,gid等）
 
-* JUST_CREATED
-* RUNNING
-* READY
-* BLOCKED
+6. 文件相关（包括文件系统信息，打开文件信息等）
 
-And default operations
+7. 信号相关（包括当前信号阻塞状态，信号处理函数等）
 
-* `void Fork(VoidFunctionPtr func, void *arg); // Make thread run (*func)(arg)`
-* `void Yield(); // Relinquish the CPU if any other thread is runnable`
-* `void Sleep(); // Put the thread to sleep and relinquish the processor`
-* `void Finish(); // The thread is done executing`
+8. 其它
 
-## Exercise 3: Expand Thread data structure
+**1.2** NachOS的线程机制
 
-> Add two member, *UID* (user id) and *TID* (thread id).
-> Maintain these two number using existing Nachos thread management mechanism.
-
-1. Add the **Additional member** and its methods in class `Thread` in file `threads/threads.h`
-
-    ```cpp
-    class Thread {
-        private:
-            // Lab1: Add thread ID and user ID
-            int tid;                            // Lab1: Add thread ID
-            int uid;                            // Lab1: Add user ID
-
-        public:
-            // Lab1: methods to manipulate tid and uid
-            int getThreadId() { return (tid); }         // Lab1: Get thread ID
-            int getUserId() { return (uid); }           // Lab1: Get user ID
-            void setUserId(int userId) { uid = userId; }// Lab1: Set user ID
-    }
-    ```
-
-2. Declare external variable in `threads/system.h`
-
-    ```cpp
-    // Lab1: Thread manipulation variable
-    #define MAX_THREAD_NUM 128
-    extern bool tid_flag[MAX_THREAD_NUM];
-    ```
-
-    > This variable is used to check which ID is taken up by a thread.
-    >
-    > the MAX_THREAD_NUM is according to Exercise 4
-
-3. Initialize it in function `void Initialize()` in file `threads/system.cc`
-
-    ```cpp
-    void Initialize(int argc, char **argv) {
-        // Lab1: Initialize thread variable
-        for (int i = 0; i < MAX_THREAD_NUM; i++) {
-            tid_flag[i] = FALSE;
-        }
-    }
-    ```
-
-4. Add the thread ID allocation mechanism in `Thread::Thread` in file `threads/threads.cc`
-
-    ```cpp
-    Thread::Thread(char* threadName)
-    {
-        // Lab1: Allocate thread id for current thread
-        for (int i = 0; i < MAX_THREAD_NUM; i++) { // sequential search
-            if (!tid_flag[i]) { // if found an empty space
-                this->tid = i;
-                tid_flag[i] = TRUE;
-                break;
-            }
-        }
-    }
-    ```
-
-5. Also don't forget to release flag in `Thread::~Thread()`
-
-    ```cpp
-    Thread::~Thread()
-    {
-        // Lab1: Release thread flag
-        tid_flag[this->tid] = FALSE;
-    }
-    ```
-
-### Test Result
-
-1. In `threads/threadtest.cc` add two functions
-
-    ```cpp
-    //----------------------------------------------------------------------
-    // Lab1Exercise3Thread
-    // 	Loop 5 times, yielding the CPU to another ready thread 
-    //	each iteration.
-    //
-    //	"which" is simply a number identifying the thread, for debugging
-    //	purposes.
-    //---------------------------------------------------------------------
-
-    void
-    Lab1Exercise3Thread(int which)
-    {
-        int num;
-
-        for (num = 0; num < 5; num++) {
-        printf("*** thread %d (uid=%d, tid=%d) looped %d times\n", which, currentThread->getUserId(), currentThread->getThreadId(), num);
-            currentThread->Yield();
-        }
-    }
-    ```
-
-    ```cpp
-    //----------------------------------------------------------------------
-    // Lab1 Exercise3
-    // 	Create multi-threads and show its uid and tid
-    //----------------------------------------------------------------------
-
-    void
-    Lab1Exercise3()
-    {
-        DEBUG('t', "Entering Lab1Exercise3");
-
-        const int max_threads = 5;
-        const int test_uid = 87;
-
-        for (int i = 0; i < max_threads; i++) {
-            // Generate a Thread object
-            Thread *t = new Thread("forked thread");
-            t->setUserId(test_uid); // set uid
-            // Define a new thread's function and its parameter
-            t->Fork(Lab1Exercise3Thread, (void*)t->getThreadId());
-        }
-
-        Lab1Exercise3Thread(0);
-    }
-    ```
-
-2. Add `Lab1Exercise3()` into `ThreadTest()` (as case 2)
-
-**Result**:
-
-* `uid` is assigned to 87
-* `tid` is auto allocated
-
-```sh
-$ threads/nachos -q 2
-Lab1 Exercise3:
-*** thread 0 (uid=0, tid=0) looped 0 times
-*** thread 1 (uid=87, tid=1) looped 0 times
-*** thread 2 (uid=87, tid=2) looped 0 times
-*** thread 3 (uid=87, tid=3) looped 0 times
-*** thread 4 (uid=87, tid=4) looped 0 times
-*** thread 5 (uid=87, tid=5) looped 0 times
-*** thread 0 (uid=0, tid=0) looped 1 times
-*** thread 1 (uid=87, tid=1) looped 1 times
-*** thread 2 (uid=87, tid=2) looped 1 times
-*** thread 3 (uid=87, tid=3) looped 1 times
-*** thread 4 (uid=87, tid=4) looped 1 times
-*** thread 5 (uid=87, tid=5) looped 1 times
-*** thread 0 (uid=0, tid=0) looped 2 times
-*** thread 1 (uid=87, tid=1) looped 2 times
-*** thread 2 (uid=87, tid=2) looped 2 times
-*** thread 3 (uid=87, tid=3) looped 2 times
-*** thread 4 (uid=87, tid=4) looped 2 times
-*** thread 5 (uid=87, tid=5) looped 2 times
-*** thread 0 (uid=0, tid=0) looped 3 times
-*** thread 1 (uid=87, tid=1) looped 3 times
-*** thread 2 (uid=87, tid=2) looped 3 times
-*** thread 3 (uid=87, tid=3) looped 3 times
-*** thread 4 (uid=87, tid=4) looped 3 times
-*** thread 5 (uid=87, tid=5) looped 3 times
-*** thread 0 (uid=0, tid=0) looped 4 times
-*** thread 1 (uid=87, tid=1) looped 4 times
-*** thread 2 (uid=87, tid=2) looped 4 times
-*** thread 3 (uid=87, tid=3) looped 4 times
-*** thread 4 (uid=87, tid=4) looped 4 times
-*** thread 5 (uid=87, tid=5) looped 4 times
-```
-
-## Exercise 4: Add global Thread management mechanism
-
-> 1. Make Nachos able to handle maximum 128 threads at the same time.
-> 2. Imitate Linux *ps* (Process Status) command. Add a *ts* (Threads Status) command which is able to show all the threads' information and status.
-
-### 4-1 Maximum threads limit
-
-Change `Thread::Thread` in file `threads/threads.cc` into this
+NachOS的所有线程信息均定义在`class Thread`中。在我们修改NachOS前，`class Thread`包含以下数据成员：
 
 ```cpp
-Thread::Thread(char* threadName)
-{
-    // Lab1: Allocate thread id for current thread
-    bool success_allocate = FALSE;
-    for (int i = 0; i < MAX_THREAD_NUM; i++) { // sequential search
-        if (!tid_flag[i]) { // if found an empty space
-            this->tid = i;
-            tid_flag[i] = TRUE;
-            success_allocate = TRUE;
-            break;
-        }
-    }
-    if (!success_allocate) {
-        printf("Reach maximum threads number %d, unable to allocate!!", MAX_THREAD_NUM);
-    }
-    ASSERT(success_allocate); // abort if unable to allocate new thread
-
-    name = threadName;
-    stackTop = NULL;
-    stack = NULL;
-    status = JUST_CREATED;
+int* stackTop; // 栈顶指针
+void *machineState[MachineStateSize]; // 寄存器状态（除了栈指针寄存器%sp)
+int* stack; // 栈底指针
+ThreadStatus status; // 线程的状态
+char* name;  // 线程名（创建线程时定义）
 ```
 
-**Testing time**:
-
-Add the following funciton in `threads/threadtest.cc` and don't forget to add `Lab1Exercise4_1()` into `ThreadTest()` (as case 3)
+NachOS中线程共有四种状态：JUST_CREATED，RUNNING，READY，BLOCKED。
 
 ```cpp
-//----------------------------------------------------------------------
-// Lab1 Exercise4-1
-// 	Create many threads until reach the maximum MAX_THREAD_NUM
-//----------------------------------------------------------------------
+enum ThreadStatus { JUST_CREATED, RUNNING, READY, BLOCKED };
+```
 
-void
-Lab1Exercise4_1()
-{
-    DEBUG('t', "Entering Lab1Exercise4_1");
+**Exercise 2  源代码阅读**
 
-    const int max_threads = 130;
+**2.1** code/threads/main.cc
 
-    for (int i = 0; i < max_threads; i++) {
-        // Generate a Thread object
-        Thread *t = new Thread("forked thread");
-        printf("*** thread name %s (tid=%d)\n", t->getName(), t->getThreadId());
+`main.cc`是NachOS启动的入口。当运行`main`函数时，NachOS先进入`Initialize`函数初始化kernel。在这之后定义了不同的宏（如`THREADS`，`USER_PROGRAM`），来完成不同lab模块的测试。以`THREADS`为例，当测试NachOS线程机制时，`main`函数会从argv中读取测试号（testnum），随后会调用`thread.cc`中定义的`ThreadTest`函数进行测试。在这个Lab中，我们修改了`ThreadTest`，来调用我们自己编写的测试函数。当`main`函数退出时，如果还有正在运行的线程，则会把控制流切换到正在运行的线程。（通过`currentThread->Finish()`手动退出main线程实现）
+
+**2.2** code/threads/threadtest.cc
+
+`threadtest.cc`包含对NachOS线程模块的测试程序。当`main`函数调用了`ThreadTest`后，便会根据全局变量`testnum`执行对应的测试程序。在我们修改之前，`threadtest.cc`中含有一个简单的fork测试函数`ThreadTest1`。我们在`ThreadTest`中添加了case 2、3、4，以调用我们新增的测试函数。（有关这方面的具体内容，请参看Exercise 3及Exercise 4的部分）
+
+**2.3** code/threads/thread.h
+
+`thread.h`中定义了与线程相关的常量（例如`MachineStateSize`，`StackSize`），及`class Thread`。`class Thread`中声明了线程名、栈指针等PCB中具备的数据成员（正如上一节提到的），同时声明了`Fork`，`Yield`，`Sleep`，`Finish`等管理线程生命周期必须的函数。
+
+**2.4** code/threads/thread.cc
+
+`thread.cc`中包含了对`class thread`中声明的函数的实现：
+
+- `Thread::Thread`
+
+  Thread类的构造函数，在线程生命周期开始时初始化status和内存空间。
+
+- `Thread::~Thread`
+
+  Thread类的析构函数，在线程生命周期结束时释放内存空间。
+  
+- `Thread::Fork`
+
+  为一个函数分配并初始化内存空间，并将其放至Ready队列。
+  
+- `Thread::CheckOverflow`
+
+  手动检查线程所用内存是否超出了分配的内存空间。
+
+- `Thread::Finish`
+
+  告知调度器这个线程将被销毁（`threadToBeDestroyed = currentThread`），然后进入Sleep。
+
+- `Thread::Yield`
+
+  主动让出CPU给下一个Ready状态的线程；若没有其它线程需要运行，则立即返回。
+  
+- `Thread::Sleep`
+
+  在当前进程等待同步条件（信号量，锁）时主动让出CPU。如果没有其它线程需要运行，则将CPU置为Idle。
+  
+- `Thread::StackAllocate`
+
+  在线程初始化时分配内存空间。
+
+**Exercise 3  扩展线程的数据结构**
+
+**3.1** 增加“用户ID、线程ID”两个数据成员，并在Nachos现有的线程管理机制中增加对这两个数据成员的维护机制。
+
+首先， 在`system.h`中声明常量`MAX_THREADS`(4.1需要用到)，声明全局变量数组`tid_allocated`用于标记一个tid是否被占用
+
+```cpp
+/* from system.h */
+// [lab1] set max threads / extern tid
+#define MAX_THREADS 128
+extern bool tid_allocated[MAX_THREADS];  // declared only; must be defined in system.cc
+```
+
+在`system.cc`中对`tid_allocated`进行定义及初始化（其实初始化为false等同于什么都不做）
+
+
+```cpp
+/* from system.cc */
+bool tid_allocated[MAX_THREADS] = {false};  // define here
+```
+
+在`threads.h`中加入`uid`，`tid`变量（private）。考虑到安全性，public方法中仅允许设置`uid`，而不允许设置`tid`。
+
+```cpp
+/* from threads.h */
+// [lab1] Add uid, pid
+private:
+	int uid, pid;
+public:
+	...
+  int getUserId() { return uid; }
+  int getThreadId() { return tid; }
+  void setUserId(int userId){ uid = userId; }
+```
+
+在线程初始化时，从`tid_allocated`寻找第一个没有被占用的tid（`tid_allocated[i]==false`)，占用这个tid（`tid_allocated[i] = true`）。
+
+
+```cpp
+/* from threads.cc  */
+Thread::Thread(){
+  ...
+  // [lab1] Allocate tid 
+  this->tid = -1;
+  for(int i = 0; i < MAX_THREADS; i++){
+    if (tid_allocated[i] == false){
+      tid_allocated[i] = true;
+      this->tid = i;
+      break;
+    }
+  } 
+}
+```
+
+在线程生命周期结束时，取消`tid_allocated[this->tid]`的占用状态。
+
+```cpp
+/* from threads.cc  */
+Thread::~Thread(){
+  ...
+  // [lab1] free allocated tid
+  tid_allocated[this->tid] = false;
+}
+```
+
+**测试**
+
+`Lab1Thread`除了打印tid和uid外什么也不做。
+
+```cpp
+/* from threadtest.cc */
+void Lab1Thread(int uid, int tid){ printf("Created thread %d@%d\n", tid, uid); }
+```
+
+我们共建立114个线程，为每个线程分配不同的uid；在这里`if(tc%4==0) t->~Thread()`用于测试tid是否能被正常释放。
+
+```cpp
+/* from threadtest.cc */
+void Lab1ThreadTest1(){
+    int test_uids[4] = {114, 514, 1919, 810};
+    for (int tc = 0; tc < 114; tc++){
+        DEBUG('t', "Entering Lab1Thread uid=%d", test_uids[tc%4]);
+        Thread *t = new Thread("Lab1Thread");
+        t->setUserId(test_uids[tc%4]);
+        Lab1Thread(t->getUserId(), t->getThreadId());
+        if(tc%4==0) t->~Thread();
     }
 }
 ```
 
-```sh
-$ threads/nachos -q 3
-Lab1 Exercise4-1:
-*** thread name forked thread (tid=1)
-*** thread name forked thread (tid=2)
-*** thread name forked thread (tid=3)
-*** thread name forked thread (tid=4)
+测试结果符合我们的预期。
 
+```
+Created Thread 1@114
+Created Thread 1@514
+Created Thread 2@1919
+Created Thread 3@810
+Created Thread 4@114
+Created Thread 4@514
 ...
-
-*** thread name forked thread (tid=124)
-*** thread name forked thread (tid=125)
-*** thread name forked thread (tid=126)
-*** thread name forked thread (tid=127)
-Reach maximum threads number 128, unable to allocate!!
-Assertion failed: line 50, file "../threads/thread.cc"
 ```
 
-### 4-2 ps-like ts command
+**Exercise 4  增加全局线程管理机制**
 
-Some clue
+**4.1** 在Nachos中增加对线程数量的限制，使得Nachos中最多能够同时存在128个线程
 
-* *Ready queue* is defined in `threads/scheduler.cc` as a private List variable `List *readyList`
+我们在初始化线程时判断是否被成功地分配了tid；若没有分配成功，则打印错误，并通过`ASSERT`退出。
 
-1. Add `tid_pointer` array with `Thread*` type to record all the threads' pointer in `threads/system.h` and `threads/system.c`. It's similar with `tid_flag` in Exercise 3.
-2. Add `getThreadStatus()` public method in `threads/thread.h`. It's similar with step 1 in Exercise 3.
-3. The TS Function
+```cpp
+/* from threads.cc */
+Thread::Thread(){
+	...
+  bool thread_allocated_tid = (0 <= this->tid && this->tid < MAX_THREADS);
+  if(!thread_allocated_tid){
+      printf("[thread] thread \"%s\" @(%d) failed to allocate tid (MAX_THREADS=%d)\n", name, uid, MAX_THREADS);
+  }
+  ASSERT(thread_allocated_tid);
+}
+```
 
-    ```cpp
-    //----------------------------------------------------------------------
-    // TS command
-    // 	Showing current threads' status (like ps in Linux)
-    //----------------------------------------------------------------------
+**测试**
 
-    void
-    TS()
-    {
-        DEBUG('t', "Entering TS");
+我们尝试建立129个线程：
 
-        const char* TStoString[] = {"JUST_CREATED", "RUNNING", "READY", "BLOCKED"};
+```cpp
+void Lab1ThreadTest2(){
+    int test_uids[4] = {114, 514, 1919, 810};
+    for (int tc = 0; tc < 129; tc++){
+        DEBUG('t', "Entering Lab1Thread uid=%d", test_uids[tc%4]);
+        Thread *t = new Thread("Lab1Thread");
+        t->setUserId(test_uids[tc%4]);
+        Lab1Thread(t->getUserId(), t->getThreadId());
+    }
+}
+```
+在尝试建立第128个线程时，nachos打印错误并通过`ASSERT`退出，这符合我们的预期。
 
-        printf("UID\tTID\tNAME\tSTATUS\n");
-        for (int i = 0; i < MAX_THREAD_NUM; i++) { // check pid flag
-            if (tid_flag[i]) {
-                printf("%d\t%d\t%s\t%s\n", tid_pointer[i]->getUserId(), tid_pointer[i]->getThreadId(), tid_pointer[i]->getName(), TStoString[tid_pointer[i]->getThreadStatus()]);
+```
+...
+Created Thread 126@514
+Created Thread 127@1919
+[thread] thread "Lab1Thread" @(0) failed to allocate tid (MAX_THREADS=128)
+Assertion failed: line 58, file "../threads/thread.cc"
+```
+
+**4.2** 仿照Linux中PS命令，增加一个功能TS(Threads Status)，能够显示当前系统中所有线程的信息和状态
+
+在`system.h`声明全局变量数组`threadsList`记录所有线程的指针，声明`printThreadsList`函数（即TS）。
+
+```cpp
+/* from system.h */
+extern Thread *threadsList[MAX_THREADS];
+void printThreadsList();
+```
+
+在`system.cc`中定义`threadsList`，并将其初始化为`NULL`。
+
+```cpp
+/* from system.cc */
+Thread *threadsList[MAX_THREADS] = {NULL};
+```
+
+在`threads.h`中增加`getStatus`函数（status是私有变量）。
+
+```cpp
+/* from threads.h */
+ThreadStatus getStatus() { return status; }
+```
+
+在初始化线程时将当前线程的指针加入`threadsList`中。
+
+```cpp
+/* from threads.cc */
+Thread::Thread(){
+	...
+	threadsList[this->tid] = this;
+}
+```
+
+在线程生命周期结束时从`threadsList`中移除当前线程的指针。
+
+```cpp
+/* from threads.cc */
+Thread::~Thread(){
+	...
+	threadsList[this->tid] = NULL;
+}
+```
+
+`printThreadsList`函数遍历`threadsList`数组，打印当前线程信息。
+
+```cpp
+/* from system.cc */
+// [Lab1] printThreadsList
+void printThreadsList(){
+    printf("%5s %5s %20s %20s\n", "<tid>", "<uid>", "<name>", "<status>");
+    for(int i = 0; i < MAX_THREADS; i++){
+        if(tid_allocated[i]&&threadsList[i]){
+            printf("%5d %5d %20s ", threadsList[i]->getThreadId(), threadsList[i]->getUserId(), threadsList[i]->getName());
+            switch(threadsList[i]->getStatus()){
+                case JUST_CREATED:printf("%20s\n", "JUST_CREATED");break;
+                case RUNNING:printf("%20s\n", "RUNNING");break;
+                case READY:printf("%20s\n", "READY");break;
+                case BLOCKED:printf("%20s\n", "BLOCKED");break;
+                default:printf("%20s\n", "UNDEFINED");ASSERT(0);break;
             }
         }
     }
-    ```
+}
+```
 
-**Testing time**:
+**测试**
 
-Add the following funciton in `threads/threadtest.cc` and don't forget to add `Lab1Exercise4_2()` into `ThreadTest()` (as case 4)
+我们创建了10个线程，并给这10个线程分配不同的uid，`if(tc%4==0) t->~Thread()`语句测试线程是否被正常销毁；随后调用`printThreadsList`函数。
 
 ```cpp
-//----------------------------------------------------------------------
-// CustomThreadFunc
-//
-//	"which" is simply a number identifying the operation to do on current thread
-//----------------------------------------------------------------------
-
-void
-CustomThreadFunc(int which)
-{
-    printf("*** current thread (uid=%d, tid=%d, pri=%d name=%s) => ", currentThread->getUserId(), currentThread->getThreadId(), currentThread->getPriority(), currentThread->getName());
-    IntStatus oldLevel; // for case 1 sleep (avoid cross initialization problem of switch case)
-    switch (which)
-    {
-        case 0:
-            printf("Yield\n");
-            scheduler->Print();
-            printf("\n\n");
-            currentThread->Yield();
-            break;
-        case 1:
-            printf("Sleep\n");
-            oldLevel = interrupt->SetLevel(IntOff);	// disable interrupts
-            currentThread->Sleep();
-            (void) interrupt->SetLevel(oldLevel);	// re-enable interrupts
-            break;
-        case 2:
-            printf("Finish\n");
-            currentThread->Finish();
-            break;
-        default:
-            printf("Yield (default)\n");
-            currentThread->Yield();
-            break;
+void Lab1ThreadTest3(){
+    int test_uids[4] = {114, 514, 1919, 810};
+    for (int tc = 0; tc < 10; tc++){
+        DEBUG('t', "Entering Lab1Thread uid=%d", test_uids[tc%4]);
+        Thread *t = new Thread("Lab1Thread");
+        t->setUserId(test_uids[tc%4]);
+        printf("Created Thread %d@%d\n", t->getThreadId(), t->getUserId());
+        Lab1Thread(t->getUserId(), t->getThreadId());
+        if(tc%4==0) t->~Thread();
     }
+    printThreadsList();
 }
 ```
 
-```cpp
-//----------------------------------------------------------------------
-// Lab1 Exercise4-2
-// 	Create some threads and use TS to show the status
-//----------------------------------------------------------------------
+可以看到，测试结果符合我们的预期。
 
-void
-Lab1Exercise4_2()
-{
-    DEBUG('t', "Entering Lab1Exercise4_2");
-
-    Thread *t1 = new Thread("fork 1");
-    Thread *t2 = new Thread("fork 2");
-    Thread *t3 = new Thread("fork 3");
-
-    t1->Fork(CustomThreadFunc, (void*)0);
-    t2->Fork(CustomThreadFunc, (void*)1);
-    t3->Fork(CustomThreadFunc, (void*)2);
-
-    Thread *t4 = new Thread("fork 4");
-
-    CustomThreadFunc(0); // Yield the current thread (i.e. main which is defined in system.cc)
-
-    printf("--- Calling TS command ---\n");
-    TS();
-    printf("--- End of TS command ---\n");
-}
+```
+<tid> <uid>               <name>             <status>
+    0     0                 main              RUNNING
+    1   514           Lab1Thread         JUST_CREATED
+    2  1919           Lab1Thread         JUST_CREATED
+    3   810           Lab1Thread         JUST_CREATED
+    4   514           Lab1Thread         JUST_CREATED
+    5  1919           Lab1Thread         JUST_CREATED
+    6   810           Lab1Thread         JUST_CREATED
+    7   514           Lab1Thread         JUST_CREATED
 ```
 
-```sh
-$ threads/nachos -q 4
-Lab1 Exercise4-2:
-*** current thread (uid=0, tid=0, name=main) => Yield
-*** current thread (uid=0, tid=1, name=fork 1) => Yield
-*** current thread (uid=0, tid=2, name=fork 2) => Sleep
-*** current thread (uid=0, tid=3, name=fork 3) => Finish
---- Calling TS command ---
-UID     TID     NAME    STATUS
-0       0       main    RUNNING
-0       1       fork 1  READY
-0       2       fork 2  BLOCKED
-0       4       fork 4  JUST_CREATED
---- End of TS command ---
-```
+#### 遇到的困难以及收获
 
-> Result may be a little bit different because of
-> Lab2 has added the priority to Thread and has shared same funciton.
-> (Thread handler & TS command)
+**1. extern**
 
-## Trouble Shooting
+有大半年的时间我没有写过c++，对c/c++如何extern函数与变量忘的差不多了。如果只在`system.h`中extern一个变量，链接时会报`undefined`错误；若在extern时初始化，如`extern bool tid_allocated[MAX_THREADS] = {false}`，又会由于多个文件都include了`system.h`导致`multiple defination`错误。在查阅了相关资料后，我明白了`system.h`中是对变量的声明，`system.cc`中才应该包含对变量定义与初始化。这一Lab让我回想起了一些ICS课上有关于编译及链接的知识，对c/cpp又更加熟悉了一些。
 
-### Undefined Reference to Extern Variable
+**2. docker**
 
-***Variable is declared but not defined***!!
+之前我曾经在维护服务器时尝试过部署docker，然而那时候只是跟着官方教程照葫芦画瓢，实际上对docker依然所知甚少。这次nachOS需要在32位Linux下编译和运行，然而Ubuntu对于32位的支持只持续到16.04，在较新的平台（AMD3000系列）上运行会报错，驱动也有许多兼容性问题；这时候，教学网上的"用Docker打开NachOS"给我指了条路——用Docker！Docker的资源占用与性能损失都低于虚拟机，容器化部署的便利性较在虚拟机管理器内导入ovf模板的方式也更胜一筹。
 
-As an exception, when an extern variable is declared with initialization, it is taken as the definition of the variable as well
+在配置这次lab的环境时，我参看了GitHub上前辈留下的Dockerfile，又查阅了Docker的一些官方文档和Reference，对Dockerfile的编写与docker命令行（如-p，-v，-it等指令）有了更深的了解。docker-compose看上去也很有吸引力，一句`docker compose up`就可以快速部署并运行一个完整的后端服务器，并且docker API也提供了监控以及自动重启功能。之后我会尝试在别的课程中使用docker，实现容器化部署及持续集成。
 
-* [**GeeksforGeeks - Understanding “extern” keyword in C**](https://www.geeksforgeeks.org/understanding-extern-keyword-in-c/)
-* [**Stackoverflow - Create extern char array in C**](https://stackoverflow.com/questions/7670816/create-extern-char-array-in-c)
-* [Stackoverflow - undefined reference when using extern](https://stackoverflow.com/questions/3658490/undefined-reference-when-using-extern/17694703)
+#### 对课程或Lab的意见和建议
 
-## Resources
+1. 希望实验说明更够更为详细，您们可以适当参考UC Berkeley的NachOS Lab Handout。篇幅不一定像UC的十多页那么长，只要能具体而非笼统地说明您们希望我们完成的任务即可。
+2. 希望助教能提供一些功能检测的函数（参考ICS的形式），感觉学生既当裁判员又当运动员不大合理。
 
-### Example
+#### 参考文献
 
-* [CSDN - nachos lab1-線程機制](https://blog.csdn.net/wyxpku/article/details/52076236)
-* [CSDN - 線程機制實習報告_Nachos Lab1](https://blog.csdn.net/superli90/article/details/29369909)
+[Linux Kernel 2.6.38 Source: /include/linux/sched.h (1193)](https://elixir.bootlin.com/linux/v2.6.38/source/include/linux/sched.h#L1193)
 
-- [CSDN 操作系統課程設計 -nachos- lab-new1](https://blog.csdn.net/wangshang4133/article/details/78627714)
+[How to change scheduling algorithm and priority used by a process?](https://access.redhat.com/solutions/2955601)
 
-### Article
+[浅析Linux下的task_struct结构体](https://www.jianshu.com/p/691d02380312)
 
-* [Shichao's Notes - Chapter 3. Process Management - The Process](https://notes.shichao.io/lkd/ch3/#the-process)
+[C/C++中extern关键字详解](https://www.jianshu.com/p/111dcd1c0201)
+
+[Docker Docs - Reference](https://docs.docker.com/reference/)

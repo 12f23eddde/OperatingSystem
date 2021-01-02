@@ -1,62 +1,83 @@
-# Lab 2: Thread Scheduling
+#### 任务完成情况
 
-## Exercise 1: Research
+| Exercise 1 | Exercise 2 | Exercise 3 | Challenge 1 |
+| ---------- | ---------- | ---------- | ----------- |
+| Y          | Y          | Y          | Y           |
 
-> Research the CPU (Process/Thread) scheduling algorithm of Linux or Windows
+**Exercise 1  调研Linux中采用的进程调度算法**
 
-### Linux scheduling algorithm
+为了避免行文冗杂，本文仅简要分析Linux2.6及之前的Linux进程调度机制。
 
-Linux has implemented three different scheduler class. Two for *real-time process*, one for conventional *time-shared process*
+**1.1 Linux 2.4 - 传统调度器**
 
-> O(1) scheduler: selects the process to run in constant time
+Linux 2.4调度算法基本上与传统Unix操作系统一脉相承。
 
-Priority range:
+- task的组织方式
 
-* 0~99: real-time priorities
-* 100~139: normal priorities
+  在Linux2.4内核中，定义了一个队列`runqueue`。`runqueue`由所有的CPU共享，采用spinlock来解决同步问题。（当然，在处理器数量较多时，这样会造成明显的overhead）
 
-#### For Real-time process
+  `runqueue`中存储所有状态为RUNNABLE的进程；也就是说只要一个进程的状态变为RUNNABLE，就会进入链表；不为RUNNABLE，就会从链表中移除。（这一点的实现类似于xv6）
 
-> defined in [`kernel/sched/rt.c`](https://github.com/torvalds/linux/blob/master/kernel/sched/rt.c)
+- 时间片的处理
 
-* SCHED_FIFO: **First-In, First-Out**
-* SCHED_RR: **Round Robin**
-  * SCHED_FIFO with timeslices
+  Linux在进行调度时，明显地区分了实时进程与普通进程。在调度策略上，普通进程采用SCHED_OTHER，实时进程则采用SCHED_RR，SCHED_FIFO。
 
-#### For Conventional Time-shared process
+  - 对于实时进程，在调度器遍历`runqueue`，根据RR或FIFO规则进行调度。
 
-> defined in [`kernel/sched/fair.c`](https://github.com/torvalds/linux/blob/master/kernel/sched/fair.c)
+  - 对于普通进程，则根据其静态优先级分配一个时间片，进程在运行时时间片递减；若时间片用完则不能上CPU。如果`runqueue`中没有进程，调度器则会重新分配时间片。
 
-* SCHED_NORMAL: **Completely Fair Scheduler (CFS)**
-  * elegant handling of I/O and CPU bound processes
+- 哪个进程上CPU？
 
-> Ideal **Fair**: N processes => each process can get 1/N of CPU time
+  当调度器寻找下一个需要运行的进程时，会遍历就绪队列中的所有进程，调用`goodness`函数计算权值，选择权值最大的一个上CPU，然后进行上下文切换。（显然这是一个$O(n)$的过程）
 
-* **Virtual Runtime** (`vruntime`): for each runnable process
-  * process run t ms => vruntime += t
-* **Priority** (i.e. **nice value**) used to weight the `vruntime`
-  * process run t ms => vruntime += t * (weight based on nice of process)
+  在进程调度时，调度器计算的权值是进程的动态优先级。影响动态优先级的因素有不少：
 
-Main idea of CFS (when the timer interrupt occurs)
+  - counter 当前进程剩的时间片越多，`counter`越大。如果一个进程之前`counter>0`时进入睡眠，则在`counter`重新分配时这个进程的优先级相对更高。（也许这样的设计有助于提高交互式进程的响应速度）
+  - nice nice值是手动设定的优先级，范围是$[-19,20]$。（这一点参考了Unix的设计）Linux的静态优先级`rt_priority=20-nice`。
+  - 如果进程上一次在同一个CPU上运行，增加一个常量。（减少CPU间的数据交换）
+  - 如果进程不需要内存空间切换，增加1。（减少内存交换）
+  - 如果进程是实时进程，增加一个较大的固定偏移量。（这能保证实时进程的执行更为优先）
 
-* CFS uses a *Red-black tree* to maintain each runnable process instead of traditional ready queue
-  * Self balancing
-  * All operations are O(log n)
-* Choose the task with the lowest `vruntime` (`cfs_rq->min_vruntime`)
-  * This approach avoid the starvation
-  * Pick process form the bottom left of the tree (min) then move toward the right part of the tree
+**1.2 Linux 2.6 - O(1) 调度器**
 
-## Exercise 2: Trace source code
+随着计算机性能的发展（尤其是多核心CPU的出现），Linux 2.4的调度算法逐渐捉襟见肘——多CPU访问一个`runqueue`性能低下，且$O(n)$的调度过程会显著降低高性能计算机系统的调度性能。
 
-> Read the following code, understand current Nachos thread mechanism
->
-> * `code/threads/scheduler.h`
-> * `code/threads/scheduler.cc`
-> * `code/threads/switch.s`
-> * `code/threads/timer.h`
-> * `code/threads/timer.cc`
+Ingo Molnar提出了一个“空间换时间”的思路——既然所有的CPU运行任意优先级的进程都要遍历队列，为什么不增加队列的数量呢？
+
+- 数据结构
+
+  在Linux Kernel 2.6中，共划分了140个优先级——其中实时进程的优先级永远高于普通优先级，保证实时进程永远被优先执行。Linux kernel 2.6里有 140 个优先级，一个非常自然的想法就是用140个队列的array来管理进程。每个优先级对应的队列采用FIFO策略——新的进程插到队尾，先进先出。在这种情况下，insert / deletion 都是 O(1)。
+
+  140个runqueue数目不小，若是调度器在寻找下一个待调度的进程时需要遍历所有的队列，也会造成很大的时间开销。在设计O(1)调度器时，设计者将一个队列映射到长度为140的bitarray中的一位——如果这个优先级队列下面有待调度的进程，那么对应的bit置为1，否则置为0。寻找最高位的位置这一操作正好对应x86中的`fls`指令，因此bitarray的实现是十分高效的。
+
+- 优先级
+
+  在Linux Kernel 2.6中，实时进程没有动态优先级（优先级的设计已经保证了实时进程会被优先执行）。对于普通进程而言，动态优先级还与bonus值有关。bonus值对应着进程之前的平均睡眠时间，睡眠时间越长则bonus值越大。事实上：
+
+  动态优先级 $ = max(100,min($静态优先级$-bonus + 5 ,139))$
+
+  Linux kernel 2.6又对普通进程中的交互进程和批处理进程做了区分——设计者认为，批处理进程占用大量的CPU资源，对响应时间要求不高；而交互进程大多数时间处于SLEEP状态，对响应时间要求很高。若一个进程满足以下条件：
+
+  动态优先级 $ \leq \frac{3}{4}*$静态优先级$+28$
+
+  则认为它是交互式进程。
+
+- 调度策略
+
+  Linux内核在调度时维护两个队列——active保存待调度的进程，expired保存已经下CPU而需要再次运行的进程，两个队列的数据结构是相同的。调度器首先尝试在active中找到优先级最高的非空队列，取队列的队首，这一过程是$O(1)$的；若调度器发现active为空，则交换active与expired的指针后继续——这一过程显然也是$O(1)$的。
+
+  当一个进程下CPU后，有两种可能的操作：
+  
+  - 插入expired进程队尾 - 下CPU的是普通进程或当前运行的是实时/交互进程但是有进程处在饥饿状态
+  
+  - 插入活跃队列队尾 - 下CPU的是实时/交互进程
+
+**Exercise 2  源代码阅读**
+
+**2.1** code/threads/scheduler.h & code/threads/scheduler.cc
 
 ```cpp
+/* from code/threads/scheduler.h */
 class Scheduler {
   public:
     Scheduler();            // Initialize list of ready threads
@@ -67,621 +88,548 @@ class Scheduler {
                     // list, if any, and return thread.
     void Run(Thread* nextThread);    // Cause nextThread to start running
     void Print();            // Print contents of ready list
+  private:
+  	List *readyList;   // queue of threads that are ready to run, but not running
+```
+
+在我们修改之前，NachOS实现了一个简单的先到先服务调度算法，并且没有实现优先级。
+
+- Scheduler()
+
+  ```cpp
+  Scheduler::Scheduler(){ readyList = new List; } 
+  ```
+
+  在Scheduler创建时，初始化ReadyList，ReadyList存放所有待调度的线程（与xv6不同，调度器并不会遍历所有进程）。List是NachOS的队列实现，不过实现了`Mapcar`，`SortedInsert`，`SortedRemove`等功能。
+
+- ~Scheduler()
+
+  ```cpp
+  Scheduler::~Scheduler(){ delete readyList; } 
+  ```
+
+  在删除Scheduler时，删除ReadyList。
+
+- ReadyToRun(Thread* thread)
+
+  ```cpp
+  void Scheduler::ReadyToRun (Thread *thread){
+      thread->setStatus(READY);
+      readyList->Append((void *)thread);
+  }
+  ```
+
+  将`thread`（作为参数传入）的状态改为READY并放到ReadyList的末尾，供稍后调用。
+
+- FindNextToRun()
+
+  ```cpp
+  Thread *Scheduler::FindNextToRun (){ return (Thread *)readyList->Remove(); }
+  ```
+
+  `FindNextToRun`从ReadyList中找到下一个待调度的线程，并将其从ReadyList中移除。这等价于：
+
+  ```cpp
+  res = queue.front();
+  queue.pop();
+  return res;
+  ```
+
+- Run(Thread* nextThread)
+
+  ```cpp
+  void Scheduler::Run (Thread *nextThread){
+      Thread *oldThread = currentThread;
+  
+      oldThread->CheckOverflow();		    // check if the old thread
+  					    // had an undetected stack overflow
+  
+      currentThread = nextThread;		    // switch to the next thread
+      currentThread->setStatus(RUNNING);      // nextThread is now running
+      
+      // This is a machine-dependent assembly language routine defined 
+      // in switch.s.  You may have to think
+      // a bit to figure out what happens after this, both from the point
+      // of view of the thread and from the perspective of the "outside world".
+  
+      SWITCH(oldThread, nextThread);
+      
+      DEBUG('t', "Now in thread \"%s\"\n", currentThread->getName());
+  
+      // If the old thread gave up the processor because it was finishing,
+      // we need to delete its carcass.  Note we cannot delete the thread
+      // before now (for example, in Thread::Finish()), because up to this
+      // point, we were still running on the old thread's stack!
+      if (threadToBeDestroyed != NULL) {
+          delete threadToBeDestroyed;
+  				threadToBeDestroyed = NULL;
+      }
+  }
+  ```
+
+  `Run`函数对应调度器从当前线程调度到`nextThread`的过程。
+
+  在操作之前，调度器首先检查有无出现栈溢出。
+
+  若一切正常，则把`currentThread`指针设为`nextThread`，并将其状态设为RUNNING。
+
+  随后调用SWITCH函数进行上下文切换（对应switch.s中的汇编代码）。
+
+  之后，`Run`函数尝试对运行结束的线程进行回收。
+
+- Print()
+
+  ```cpp
+  void Scheduler::Print(){
+      printf("Ready list contents: ");
+      readyList->Mapcar((VoidFunctionPtr) ThreadPrint);
+      printf("\n");
+  }
+  ```
+
+  打印当前readyList中的所有线程名称。（`MapCar`函数将List中的每一个成员作为参数传给`ThreadPrint`）
+
+**2.2** code/threads/switch.s
+
+`switch.s`中存放平台相关的执行上下文切换的汇编代码，对应`SWITCH`函数。（以下是代码中的x86部分）
+
+```cpp
+/* void SWITCH( thread *t1, thread *t2 )
+**
+** on entry, stack looks like this:
+**      8(esp)  ->              thread *t2
+**      4(esp)  ->              thread *t1
+**       (esp)  ->              return address
+**
+** we push the current eax on the stack so that we can use it as
+** a pointer to t1, this decrements esp by 4, so when we use it
+** to reference stuff on the stack, we add 4 to the offset.
+*/
+        .comm   _eax_save,4
+
+        .globl  SWITCH
+SWITCH:
+        movl    %eax,_eax_save          # save the value of eax
+        movl    4(%esp),%eax            # move pointer to t1 into eax
+        movl    %ebx,_EBX(%eax)         # save registers
+        ...
+        movl    %esp,_ESP(%eax)         # save stack pointer
+        movl    _eax_save,%ebx          # get the saved value of eax
+        movl    %ebx,_EAX(%eax)         # store it
+        movl    0(%esp),%ebx            # get return address from stack into ebx
+        movl    %ebx,_PC(%eax)          # save it into the pc storage
+
+        movl    8(%esp),%eax            # move pointer to t2 into eax
+
+        movl    _EAX(%eax),%ebx         # get new value for eax into ebx
+        movl    %ebx,_eax_save          # save it
+        movl    _EBX(%eax),%ebx         # retore old registers
+        ...
+        movl    _ESP(%eax),%esp         # restore stack pointer
+        movl    _PC(%eax),%eax          # restore return address into eax
+        movl    %eax,4(%esp)            # copy over the ret address on the stack
+        movl    _eax_save,%eax
+
+        ret
+```
+
+- SWITCH通过栈中的指针，将通用寄存器状态备份到oldThread中，并保存栈中的返回地址，以便之后跳转。
+
+- 之后，从newThread中恢复通用寄存器状态，将4(%esp)设为新线程的地址。
+- 接下来，从SWITCH中返回到Run函数，检查是否有线程需要销毁；若没有，则再从Run返回跳转到线程代码。
+
+**2.3** code/threads/timer.h & code/threads/timer.cc
+
+`timer.cc`中定义了一个模拟的硬件计时器。这个模拟计时器通过NachOS的Interrupt机制，每隔一段时间执行handler函数。
+
+```cpp
+// The following class defines a hardware timer. 
+class Timer {
+  public:
+    Timer(VoidFunctionPtr timerHandler, int callArg, bool doRandom);
+				// Initialize the timer, to call the interrupt
+				// handler "timerHandler" every time slice.
+    ~Timer() {}
+
+// Internal routines to the timer emulation -- DO NOT call these
+
+    void TimerExpired();	// called internally when the hardware
+				// timer generates an interrupt
+
+    int TimeOfNextInterrupt();  // figure out when the timer will generate
+				// its next interrupt 
 
   private:
-    List *readyList;          // queue of threads that are ready to run,
-                // but not running
+    bool randomize;		// set if we need to use a random timeout delay
+    VoidFunctionPtr handler;	// timer interrupt handler 
+    int arg;			// argument to pass to interrupt handler
 };
 ```
 
-The original Nachos scheduling is simply FIFO without priority.
+- Timer
 
-## Exercise 3: Expand Thread scheduling algorithm
+  初始化一个硬件计时器。
 
-> Implement preemption algorithm based on priority
+  其中callArg以int的形式把参数传给timerHandler，doRandom判断这一个计时器要不要使用随机时间。
 
-### 1. Add priority property in Thread
+  随后调用`interrupt->Schedule`，设置在一定时间间隔后执行时钟事件。
 
-Add priority and its set/get method in `Thread` class in `threads/threads.h`
+  ```cpp
+  Timer::Timer(VoidFunctionPtr timerHandler, int callArg, bool doRandom){
+      randomize = doRandom;
+      handler = timerHandler;
+      arg = callArg; 
+    // schedule the first interrupt from the timer device
+      interrupt->Schedule(TimerHandler, (int) this, TimeOfNextInterrupt(), 
+  		TimerInt); 
+  }
+  ```
+
+- TimeofNextInterrupt
+
+  计算下一次中断的时间。如果使用随机时间，则中断间隔为$[1, TimerTicks * 2]$；否则中断间隔为$TimerTicks$。（TimerTicks定义在`/machine/stats.h `，默认值为100）
+
+  ```cpp
+  int Timer::TimeOfNextInterrupt() {
+      if (randomize)
+    return 1 + (Random() % (TimerTicks * 2));
+      else
+    return TimerTicks; 
+  }
+  ```
+
+- TimeExpired
+
+  当时钟中断事件到来时，`TimerExpired`函数会被调用。这个函数设置下一次时钟事件，之后执行handler中定义的函数。
+  
+  ```cpp
+  void Timer::TimerExpired() {
+      // schedule the next timer device interrupt
+    interrupt->Schedule(TimerHandler, (int) this, TimeOfNextInterrupt(), 
+      TimerInt);
+  
+      // invoke the Nachos interrupt handler for this device
+      (*handler)(arg);
+  }
+  ```
+
+
+**Exercise 3  实现基于优先级的抢占式调度算法**
+
+**3.1** 手动设置调度算法
+
+为了方便测试，我们定义了调度器的三种调度算法：NAIVE（原本NachOS的调度算法），STATICPRIORTY（静态优先级），ROUND_ROBIN（时间片轮转）。
+
+```cpp
+enum SchedulerPolicy { NAIVE, STATICPRIORTY, ROUND_ROBIN };
+```
+
+在Thread类中，我们增加了一个私有变量和一个成员函数，允许测试程序设置调度器的调度算法。
 
 ```cpp
 class Thread {
-    private:
-        // Lab2: priority of thread
-        int priority;                       // Lab2: Add priority
-
-    public:
-        // Lab2: priority of thread
-        int getPriority() { return (priority); }  // Lab2: Get priority
-        void setPriority(int p) { priority = p; } // Lab2: Set priority
+  public:
+  	...
+    void setPolicy(SchedulerPolicy newpolicy);
+  private:
+    SchedulerPolicy policy;
 }
 ```
 
-Initialize priority in initialization (use [constructor overloading](#C++-Constructor-Overloading))
+**3.2** 实现优先级数据结构
 
-1. Add `Thread(char* debugName, int p);		// Lab2: initialize a Thread with priority` in `threads/threads.h`
-2. Modify original Thread constructor in `threads/threads.cc`
+针对每个线程，我们增加了priority私有变量，并增加了两个成员函数——setter和getter。
 
-    ```cpp
-    Thread::Thread(char* threadName, int p)
-        : priority( p ) // Lab2: default priority
-    {
-        // The same...
-        // ...
+```cpp
+class Thread {
+  private:
+  	...
+    int priority;  // [lab2] set priority HIGH 0 - 127 LOW
 
+  public:
+    ...
+    // [lab2] Add priority
+    int getPriority() { return priority; }
+    void setPriority(int newpr) {priority = newpr; }
+```
+
+**3.3** 高优先级抢占
+
+- 首先我们要让待调度的线程在readyList上按照优先级排序：
+
+  幸运的是，List中的`SortedInsert`函数正好实现了这个功能。只要把Append换成SortedInsert，问题就解决了。
+
+- 然后我们需要让新来的高优先级进程主动把currentThread从控制流中抢下来：
+
+  在条件判断成立之后，ReadyToRun函数会调用Thread的Run方法，强行把控制流切换到新来的进程。
+
+```cpp
+void Scheduler::ReadyToRun (Thread *thread){
+    DEBUG('t', "Putting thread %s on ready list.\n", thread->getName());
+    thread->setStatus(READY);
+
+    // [lab2]  Thank GOD!!! You got SortedInsert(), which inserts elements in asending order.
+    if (policy==STATICPRIORTY){
+        readyList->SortedInsert((void *)thread, thread->getPriority());
+    } else {
+        readyList->Append((void *)thread);
     }
-    ```
 
-    ```cpp
-    // C++ Constructor Overloading
-    Thread::Thread(char* threadName)
-        : Thread(threadName, 0)
-    {
-        // do nothing special
+  	// 抢占
+    if(this->policy==STATICPRIORTY && thread->getPriority() < currentThread->getPriority()){
+        printf("[handler] context switch (pr) prev->pr=%d new-pr=%d\n", currentThread->getPriority(), thread->getPriority());
+        currentThread->setStatus(READY);
+        readyList->SortedInsert((void *)currentThread, currentThread->getPriority());
+        this->Run(thread);
     }
-    ```
-
-> (Optional) Extend TS command in Lab 1
-
-Test (add the following test in `threads/threadtest.cc`) and as case 5
-
-```cpp
-//----------------------------------------------------------------------
-// Lab2 Exercise3-1
-// 	Fork some Thread with different ways to initial the priority
-//----------------------------------------------------------------------
-
-void
-Lab2Exercise3_1()
-{
-    DEBUG('t', "Entering Lab2Exercise3_1");
-
-    Thread *t1 = new Thread("with p", 87);
-
-    Thread *t2 = new Thread("set p");
-    t2->setPriority(100);
-
-    Thread *t3 = new Thread("no p");
-
-    t1->Fork(CustomThreadFunc, (void*)0);
-    t2->Fork(CustomThreadFunc, (void*)0);
-    t3->Fork(CustomThreadFunc, (void*)0);
-
-    CustomThreadFunc(0); // Yield the current thread
-
-    printf("--- Calling TS command ---\n");
-    TS();
-    printf("--- End of TS command ---\n");
 }
 ```
 
-Result
+**测试**
 
-```txt
-$ threads/nachos -q 5
-Lab2 Exercise3-1:
-*** current thread (uid=0, tid=0, name=main) => Yield
-*** current thread (uid=0, tid=1, name=with p) => Yield
-*** current thread (uid=0, tid=2, name=set p) => Yield
-*** current thread (uid=0, tid=3, name=no p) => Yield
---- Calling TS command ---
-UID     TID     NAME    PRI     STATUS
-0       0       main    0       RUNNING
-0       1       with p  87      READY
-0       2       set p   100     READY
-0       3       no p    0       READY
---- End of TS command ---
-```
-
-### 2. Change insertion of readyList by using SortedInsert
-
-Modify `Scheduler::ReadyToRun` in `threads/scheduler.cc`
+如果所有测试进程都在`Lab2Test2`函数中被创建，则当控制流离开`main`线程时，这三个进程会同时出现在readyList上。
 
 ```cpp
-void
-Scheduler::ReadyToRun (Thread *thread)
-{
+void Lab2Test2(){
+    scheduler->setPolicy(STATICPRIORTY);
 
-    // readyList->Append((void *)thread); // Orignal
-    readyList->SortedInsert((void *)thread, thread->getPriority()); // Lab2: insert Thread with priority
+    Thread *t1 = new Thread("Thread0", 114);
+    t1->Fork(Lab2Thread2, (void*)114);
+
+    scheduler->Print();
 }
 ```
 
-Test (add the following test in `threads/threadtest.cc`) and as case 6
-
-> I've also changed a little bit output of `CustomThreadFunc()`
+为了解决这个问题，我想到了递归调用的方法。`Lab2Thread2`在运行中会创建优先级更高的进程`t`，当`t`的状态变为READY后，应该能将当前进程抢占下来。这里需要注意，NachOS中的时间不会主动流动；只有当调用`interrupt->OneTick()`时，时间才会增加1或10个tick。
 
 ```cpp
-//----------------------------------------------------------------------
-// Lab2 Exercise3-2
-// 	Fork some Thread with different priority
-//  and observe if the lower one will take over the CPU
-//----------------------------------------------------------------------
-
-void
-Lab2Exercise3_2()
-{
-    DEBUG('t', "Entering Lab2Exercise3_2");
-
-    Thread *t1 = new Thread("lower", 78);
-    Thread *t2 = new Thread("highest", 87);
-    // The lowest one will be put in front of the list
-    // due to SortedInsert() in list.cc
-    Thread *t3 = new Thread("lowest", 38);
-
-    t1->Fork(CustomThreadFunc, (void*)0);
-    t2->Fork(CustomThreadFunc, (void*)0);
-    t3->Fork(CustomThreadFunc, (void*)0);
-
-    CustomThreadFunc(0); // Yield the current thread
-
-    // Because the main() Thread has priority 0
-    // Then any process yield will make main keep running
-    // Since 0 is the lowest number and it will be in front of the readyList
-    // So the TS command will be called right after the first Yield()
-    printf("--- Calling TS command ---\n");
-    TS();
-    printf("--- End of TS command ---\n\n");
+void Lab2Thread2(int pr){
+    printf("(%d) [%d] name=%s Forking...\n", stats->totalTicks, currentThread->getThreadId(), currentThread->getName());
+    interrupt->OneTick();  // extend life for 10 ticks
+    if (pr/2>=4){
+        Thread *t = new Thread("Thread", pr/2);
+        t->Fork(Lab2Thread2, (void*)(pr/2));
+    }
+    interrupt->OneTick();  // extend life for 10 ticks
+    printf("(%d) [%d] name=%s Exiting...\n", stats->totalTicks, currentThread->getThreadId(), currentThread->getName());
 }
 ```
 
-Result
+测试结果符合我们的预期，高优先级的进程的确能在状态变为READY时抢占低优先级的进程。然而，进程回收时会出现问题。
 
-```txt
-$ threads/nachos -q 6
-Lab2 Exercise3-2:
-*** current thread (uid=0, tid=0, pri=0, name=main) => Yield
-Ready list contents:
-lowest, lower, highest,
-
-*** current thread (uid=0, tid=3, pri=38, name=lowest) => Yield
-Ready list contents:
-main, lower, highest,
-
---- Calling TS command ---
-UID     TID     NAME    PRI     STATUS
-0       0       main    0       RUNNING
-0       1       lower   78      READY
-0       2       highest 87      READY
-0       3       lowest  38      READY
---- End of TS command ---
-
-*** current thread (uid=0, tid=1, pri=78, name=lower) => Yield
-Ready list contents:
-highest,
-
-*** current thread (uid=0, tid=2, pri=87, name=highest) => Yield
-Ready list contents:
-lower,
+```
+(30) [1] name=Thread0 Forking...
+[handler] context switch (pr) prev->pr=114 new-pr=57
+(50) [2] name=Thread Forking...
+[handler] context switch (pr) prev->pr=57 new-pr=28
+(70) [3] name=Thread Forking...
+[handler] context switch (pr) prev->pr=28 new-pr=14
+(90) [4] name=Thread Forking...
+[handler] context switch (pr) prev->pr=14 new-pr=7
+(110) [5] name=Thread Forking...
+(130) [5] name=Thread Exiting...
+...
 ```
 
-## Challenge 1: More expansion: Round Robin
+**Challenge 1  时间片轮转算法**
 
-> Implement Round Robin or Multilevel Feedback Queues. Or implement Linux or Windows's algorithm.
+**1.1 实现必要的数据结构**
 
-Tracing code
-
-* In the original Nachos system. If you give `-rs` argument, then in `threads/system.cc`, it will enable random timer interrupt.
-  * calling `TimerInterruptHandler()` and it invokes `interrupt->YieldOnReturn()` will *cause a context switch* (in `machine/interrupt.cc`)
-  * `interrupt->YieldOnReturn()` is simply raise `yieldOnReturn` flag. And the thread will be yielded in `Interrupt::OneTick()`.
-    * Comment said
-        ```c
-        //	Two things can cause OneTick to be called:
-        //		interrupts are re-enabled
-        //		a user instruction is executed
-        ```
-    * `Interrupt::SetLevel()`
-* In the `machine/stats.h` Nachos has defined
-  * `#define TimerTicks 100 // (average) time between timer interrupt` (時間片).
-  * public variabe `int totalTicks; // Total time running Nachos` of `class Statistics`
-    * `Statistics *stats; // performance metrics` define in `threads/system.cc`
-* Nachos will invoke the interrupt handler for timer in `Timer::TimerExpired()` in `machine/timer.cc`
-
-Thus, first yield the Thread when the time is up.
-Second, we need to start a timer.
-Third, re-enabled the interrupt make the system calls `Interrupt::OneTick()` to make system time move forward.
-
-> I just want to use RR only in this Lab. I don't really want to modify the entire system (i.e. change `FindNextToRun()`).
-
-### 1. Modify scheduler
-
-Add funciton and variable in `class Scheduler` in `threads/scheduler.h` and `threads/scheduler.cc`
+由于我们这里不实现动态优先级，因此可以把记忆时间片的工作交给调度器。`lastCalledTick`会记录上一次发生上下文切换的时间，若距今超过`switchDuration`，则强行进行上下文切换。
 
 ```cpp
 class Scheduler {
   public:
-    // Lab2: RR rescheduling
-    int lastSwitchTick; // Lab2: record the last context switch time
-}
-
-// Lab2: RR rescheduling
-extern void RRHandler(int dummy); // Lab2: re-order the readyList when timer interrupt
+    ...
+    // [lab2] rr
+    void setSwitchDuration(int newduration);
+    static void handleThreadTimeUp(int ptr_int);
+  private:
+  	...
+    // [lab2] Round-Robin
+  	int switchDuration;   // switchDuration may not be accurate
+    int lastCalledTick;
+    void inline resetCalledTick();
+};
 ```
 
-> `RRHandler()` is imitating `TimerInterruptHandler()`
+成员函数中增加了switchDuration的setter。
 
 ```cpp
-//----------------------------------------------------------------------
-// Scheduler::RRHandler (Lab2)
-// 	Round Robin Rescheduling, by reordering the ready list.
-//	(Called when the timer interrupt triggered)
-//----------------------------------------------------------------------
-static void
-RRHandler(int dummy)
-{
-    int timeDuration = stats->totalTicks - scheduler->lastSwitchTick;
-    printf("\nTimer interrupt with duration: %d", timeDuration);
-    if (timeDuration >= TimerTicks) {
-        if (interrupt->getStatus() != IdleMode) { // IdleMode == readyList empty
-            printf(" (Determine to Context switch)\n");
+// [lab2] Round-Robin
+void Scheduler::setSwitchDuration(int newduration){ 
+    ASSERT(switchDuration > TimerTicks);
+    switchDuration = newduration; }
+```
+
+`Run`函数进行上下文切换。在切换前，我们需要记录当前的时间。
+
+```cpp
+void Scheduler::Run (Thread *nextThread){
+    // [lab2] rr - resetCalledTick on thread switching
+    resetCalledTick();
+  	...
+}
+
+void inline Scheduler::resetCalledTick(){ scheduler->lastCalledTick = stats->totalTicks; }
+```
+
+然而这里出现了一个很大的问题——我不知道该怎么按时间触发上下文切换。NachOS中的timer实现限定了其功能——每隔固定时间执行函数，然而这显然不能满足分时间片轮转的需求。这时候我注意到，似乎`TimerInterruptHandler`是可以替换的！这里用`Scheduler::handleThreadTimeUp`这个函数替换了默认的`TimerInterruptHandler`。
+
+```cpp
+/* from code/threads/system.cc */
+...
+else if (!strcmp(*argv, "-rr")) {
+  // Start Round-Robin Timer
+  ASSERT(argc > 1);
+  enableRoundRobin = TRUE;
+  argCount = 2;
+}
+```
+
+```cpp
+if (randomYield){               // start the timer (if needed)
+  timer = new Timer(TimerInterruptHandler, 0, randomYield);
+} else if (enableRoundRobin){
+  // [lab2] RR
+  // create customed TimerInterruptHandler with random disabled
+  // hack here: pass &scheduler as arg
+  timer = new Timer(scheduler->handleThreadTimeUp, (int)scheduler, false);
+}
+```
+
+在调度器的策略不为ROUND_ROBIN时，`handleThreadTimeup`的功能与`timerInterruptHandler`别无二致。而当策略为ROUND_ROBIN时，当距上一次上下文切换的时间超过`switchDuration`时，会触发上下文切换。
+
+```cpp
+void Scheduler::handleThreadTimeUp(int ptr_int){
+    // [lab2] hack here: pass scheduler as int
+    Scheduler* curr_sche = (Scheduler*) ptr_int;
+
+    if (curr_sche->policy!=ROUND_ROBIN){
+        if (interrupt->getStatus() != IdleMode) {
+            // Not on RR, act like TimerInterruptHandler
+            printf("[handler] context switch (non-rr) \n");
             interrupt->YieldOnReturn();
-            scheduler->lastSwitchTick = stats->totalTicks; // update lastSwitchTick
-        } else {
-            printf(" (readyList is Empty)\n");
         }
-    } else {
-        printf("\n");
+        return;
+    }
+
+    int passedDuration = stats->totalTicks - curr_sche->lastCalledTick;
+    if(passedDuration >= curr_sche->switchDuration){
+        /* from interrupt.cc */
+        if (interrupt->getStatus() != IdleMode) {
+            printf("[handler] context switch (rr) duration=%d\n", passedDuration);
+            interrupt->YieldOnReturn();
+        }
     }
 }
 ```
 
-> "dummy" is because every interrupt handler takes one argument, whether it needs it or not.
+**测试**
 
-### 2. Activate timer
-
-Add `-rr` argument in `threads/system.cc` to active timer for `Scheduler::RRHandler()`
+`Lab2Thread3`的功能非常简单：运行一定的时间（调用OneTick使时间流动），打印线程状态。
 
 ```cpp
-bool roundRobin = FALSE; // Lab2: Round robin
-
-if (!strcmp(*argv, "-rr")) { // Lab2: activate RR timer
-    ASSERT(argc > 1);
-    roundRobin = TRUE;
-    argCount = 2;
-}
-
-if (roundRobin) // Lab2: start the RR timer
-    timer = new Timer(scheduler->RRHandler, 0, FALSE);
-```
-
-### 3. Test with calling OneTick()
-
-In `threads/threadtest.cc` we invoke `OneTick()` to advance simulated time.
-
-> Each OneTick() will move 10 ticks (`SystemTick`)
-
-```cpp
-//----------------------------------------------------------------------
-// ThreadWithTicks
-//  Re-enable the interrupt to invoke OnTick() make system time moving forward
-//----------------------------------------------------------------------
-
-void
-ThreadWithTicks(int runningTime)
-{
-    int num;
-    
-    for (num = 0; num < runningTime * SystemTick; num++) {
-        printf("*** thread with running time %d looped %d times (stats->totalTicks: %d)\n", runningTime, num+1, stats->totalTicks);
-        interrupt->OneTick(); // make system time moving forward (advance simulated time)
-        // Switch interrupt on and off to invoke OneTick() (not necessary...)
-        // interrupt->SetLevel(IntOn);
-        // interrupt->SetLevel(IntOff);
+void Lab2Thread3(int ticks){
+    int cnt_ticks = 0;
+    while(ticks--){
+        printf("(%d) [%d] name=%s Running for %d ticks\n", 
+            stats->totalTicks, currentThread->getThreadId(), currentThread->getName(), 10*cnt_ticks++);
+        interrupt->OneTick();  // extend life for 10 ticks
     }
-    currentThread->Finish();
 }
 ```
 
-Add the Lab2ChallengeRR as case 7
+`Lab2Test3`设置三个线程，分别运行300、80、200个ticks，从中可以观察时间片轮转的功能是否正常。
 
 ```cpp
-//----------------------------------------------------------------------
-// Lab2 Challenge Round Robin
-// 	Fork some Thread with different priority
-//  and observe if the lower one will take over the CPU
-//----------------------------------------------------------------------
+// NOTE: priority not implemented in RR
+void Lab2Test3(){
+    scheduler->setPolicy(ROUND_ROBIN);
+    scheduler->setSwitchDuration(100);
 
-void
-Lab2ChallengeRR()
-{
-    DEBUG('t', "Entering Lab2ChallengeRR");
+    Thread *t0 = new Thread("some");
+    Thread *t1 = new Thread("times");
+    Thread *t2 = new Thread("naive");
 
-    printf("\nSystem initial ticks:\tsystem=%d, user=%d, total=%d\n", stats->systemTicks, stats->userTicks, stats->totalTicks);
-
-    Thread *t1 = new Thread("7");
-    Thread *t2 = new Thread("2");
-    Thread *t3 = new Thread("5");
-
-    printf("\nAfter new Thread ticks:\tsystem=%d, user=%d, total=%d\n", stats->systemTicks, stats->userTicks, stats->totalTicks);
-
-    t1->Fork(ThreadWithTicks, (void*)7);
-    t2->Fork(ThreadWithTicks, (void*)2);
-    t3->Fork(ThreadWithTicks, (void*)5);
-
-    printf("\nAfter 3 fork() ticks:\tsystem=%d, user=%d, total=%d\n\n", stats->systemTicks, stats->userTicks, stats->totalTicks);
-
-    // update the lastSwitchTick
-    // (according to previous test, it will start from 50)
-    scheduler->lastSwitchTick = stats->totalTicks;
-    currentThread->Yield(); // Yield the main thread
+    t0->Fork(Lab2Thread3, (void*)30);
+    t1->Fork(Lab2Thread3, (void*)8);
+    t2->Fork(Lab2Thread3, (void*)20);
 }
 ```
 
-Create three threads with different running time. And see if the system switch them when the time is up!
+可以看到，测试结果总体来说符合我们的预期。受NachOS的Timer实现的限制，`handleThreadTimeUp`每隔100个ticks才能运行一次，因此是否超出时间片的检查可能是延后的。some线程第一次运行了160个ticks才下CPU，而naive线程运行了110个ticks。
 
-#### Result
-
-```sh
-threads/nachos -rr -q 7
+```
+(50) [1] name=some Running for 0 ticks
+...
+(190) [1] name=some Running for 140 ticks
+[handler] context switch (rr) duration=160
+(210) [2] name=times Running for 0 ticks
+...
+(280) [2] name=times Running for 70 ticks
+(300) [3] name=naive Running for 0 ticks
+...
+(390) [3] name=naive Running for 90 ticks
+[handler] context switch (rr) duration=110
+(410) [1] name=some Running for 150 ticks
+...
+(490) [1] name=some Running for 230 ticks
+[handler] context switch (rr) duration=100
+(510) [3] name=naive Running for 100 ticks
+...
+(590) [3] name=naive Running for 180 ticks
+[handler] context switch (rr) duration=100
+(610) [1] name=some Running for 240 ticks
+...
+(660) [1] name=some Running for 290 ticks
+(680) [3] name=naive Running for 190 ticks
 ```
 
-> It seems like Conext Switch need 10 ticks.
-> And system need 10 ticks to boot up and 10 ticks for each fork()
+#### 遇到的困难以及收获
 
-```txt
-Lab2 Challenge RR:
-(don't forget to add `-rr` argument to activate timer)
+**1. 强制类型转换**
 
-System initial ticks:   system=10, user=0, total=10
-
-After new Thread ticks: system=10, user=0, total=10
-
-After 3 fork() ticks:   system=40, user=0, total=40
-
-*** thread with running time 7 looped 1 times (stats->totalTicks: 50)
-*** thread with running time 7 looped 2 times (stats->totalTicks: 60)
-*** thread with running time 7 looped 3 times (stats->totalTicks: 70)
-*** thread with running time 7 looped 4 times (stats->totalTicks: 80)
-*** thread with running time 7 looped 5 times (stats->totalTicks: 90)
-
-Timer interrupt with duration: 60
-*** thread with running time 7 looped 6 times (stats->totalTicks: 100)
-*** thread with running time 7 looped 7 times (stats->totalTicks: 110)
-*** thread with running time 7 looped 8 times (stats->totalTicks: 120)
-*** thread with running time 7 looped 9 times (stats->totalTicks: 130)
-*** thread with running time 7 looped 10 times (stats->totalTicks: 140)
-*** thread with running time 7 looped 11 times (stats->totalTicks: 150)
-*** thread with running time 7 looped 12 times (stats->totalTicks: 160)
-*** thread with running time 7 looped 13 times (stats->totalTicks: 170)
-*** thread with running time 7 looped 14 times (stats->totalTicks: 180)
-*** thread with running time 7 looped 15 times (stats->totalTicks: 190)
-
-Timer interrupt with duration: 160 (Determine to Context switch)
-*** thread with running time 2 looped 1 times (stats->totalTicks: 210)
-*** thread with running time 2 looped 2 times (stats->totalTicks: 220)
-*** thread with running time 2 looped 3 times (stats->totalTicks: 230)
-*** thread with running time 2 looped 4 times (stats->totalTicks: 240)
-*** thread with running time 2 looped 5 times (stats->totalTicks: 250)
-*** thread with running time 2 looped 6 times (stats->totalTicks: 260)
-*** thread with running time 2 looped 7 times (stats->totalTicks: 270)
-*** thread with running time 2 looped 8 times (stats->totalTicks: 280)
-*** thread with running time 2 looped 9 times (stats->totalTicks: 290)
-
-Timer interrupt with duration: 100 (Determine to Context switch)
-*** thread with running time 5 looped 1 times (stats->totalTicks: 310)
-*** thread with running time 5 looped 2 times (stats->totalTicks: 320)
-*** thread with running time 5 looped 3 times (stats->totalTicks: 330)
-*** thread with running time 5 looped 4 times (stats->totalTicks: 340)
-*** thread with running time 5 looped 5 times (stats->totalTicks: 350)
-*** thread with running time 5 looped 6 times (stats->totalTicks: 360)
-*** thread with running time 5 looped 7 times (stats->totalTicks: 370)
-*** thread with running time 5 looped 8 times (stats->totalTicks: 380)
-*** thread with running time 5 looped 9 times (stats->totalTicks: 390)
-
-Timer interrupt with duration: 100 (Determine to Context switch)
-*** thread with running time 7 looped 16 times (stats->totalTicks: 420)
-*** thread with running time 7 looped 17 times (stats->totalTicks: 430)
-*** thread with running time 7 looped 18 times (stats->totalTicks: 440)
-*** thread with running time 7 looped 19 times (stats->totalTicks: 450)
-*** thread with running time 7 looped 20 times (stats->totalTicks: 460)
-*** thread with running time 7 looped 21 times (stats->totalTicks: 470)
-*** thread with running time 7 looped 22 times (stats->totalTicks: 480)
-*** thread with running time 7 looped 23 times (stats->totalTicks: 490)
-
-Timer interrupt with duration: 100 (Determine to Context switch)
-*** thread with running time 2 looped 10 times (stats->totalTicks: 510)
-*** thread with running time 2 looped 11 times (stats->totalTicks: 520)
-*** thread with running time 2 looped 12 times (stats->totalTicks: 530)
-*** thread with running time 2 looped 13 times (stats->totalTicks: 540)
-*** thread with running time 2 looped 14 times (stats->totalTicks: 550)
-*** thread with running time 2 looped 15 times (stats->totalTicks: 560)
-*** thread with running time 2 looped 16 times (stats->totalTicks: 570)
-*** thread with running time 2 looped 17 times (stats->totalTicks: 580)
-*** thread with running time 2 looped 18 times (stats->totalTicks: 590)
-
-Timer interrupt with duration: 100 (Determine to Context switch)
-*** thread with running time 5 looped 10 times (stats->totalTicks: 610)
-*** thread with running time 5 looped 11 times (stats->totalTicks: 620)
-*** thread with running time 5 looped 12 times (stats->totalTicks: 630)
-*** thread with running time 5 looped 13 times (stats->totalTicks: 640)
-*** thread with running time 5 looped 14 times (stats->totalTicks: 650)
-*** thread with running time 5 looped 15 times (stats->totalTicks: 660)
-*** thread with running time 5 looped 16 times (stats->totalTicks: 670)
-*** thread with running time 5 looped 17 times (stats->totalTicks: 680)
-*** thread with running time 5 looped 18 times (stats->totalTicks: 690)
-
-Timer interrupt with duration: 100 (Determine to Context switch)
-*** thread with running time 7 looped 24 times (stats->totalTicks: 710)
-*** thread with running time 7 looped 25 times (stats->totalTicks: 720)
-*** thread with running time 7 looped 26 times (stats->totalTicks: 730)
-*** thread with running time 7 looped 27 times (stats->totalTicks: 740)
-*** thread with running time 7 looped 28 times (stats->totalTicks: 750)
-*** thread with running time 7 looped 29 times (stats->totalTicks: 760)
-*** thread with running time 7 looped 30 times (stats->totalTicks: 770)
-*** thread with running time 7 looped 31 times (stats->totalTicks: 780)
-*** thread with running time 7 looped 32 times (stats->totalTicks: 790)
-
-Timer interrupt with duration: 100 (Determine to Context switch)
-*** thread with running time 2 looped 19 times (stats->totalTicks: 810)
-*** thread with running time 2 looped 20 times (stats->totalTicks: 820)
-*** thread with running time 5 looped 19 times (stats->totalTicks: 840)
-*** thread with running time 5 looped 20 times (stats->totalTicks: 850)
-*** thread with running time 5 looped 21 times (stats->totalTicks: 860)
-*** thread with running time 5 looped 22 times (stats->totalTicks: 870)
-*** thread with running time 5 looped 23 times (stats->totalTicks: 880)
-*** thread with running time 5 looped 24 times (stats->totalTicks: 890)
-
-Timer interrupt with duration: 100 (Determine to Context switch)
-*** thread with running time 7 looped 33 times (stats->totalTicks: 910)
-*** thread with running time 7 looped 34 times (stats->totalTicks: 920)
-*** thread with running time 7 looped 35 times (stats->totalTicks: 930)
-*** thread with running time 7 looped 36 times (stats->totalTicks: 940)
-*** thread with running time 7 looped 37 times (stats->totalTicks: 950)
-*** thread with running time 7 looped 38 times (stats->totalTicks: 960)
-*** thread with running time 7 looped 39 times (stats->totalTicks: 970)
-*** thread with running time 7 looped 40 times (stats->totalTicks: 980)
-*** thread with running time 7 looped 41 times (stats->totalTicks: 990)
-
-Timer interrupt with duration: 100 (Determine to Context switch)
-*** thread with running time 5 looped 25 times (stats->totalTicks: 1010)
-*** thread with running time 5 looped 26 times (stats->totalTicks: 1020)
-*** thread with running time 5 looped 27 times (stats->totalTicks: 1030)
-*** thread with running time 5 looped 28 times (stats->totalTicks: 1040)
-*** thread with running time 5 looped 29 times (stats->totalTicks: 1050)
-*** thread with running time 5 looped 30 times (stats->totalTicks: 1060)
-*** thread with running time 5 looped 31 times (stats->totalTicks: 1070)
-*** thread with running time 5 looped 32 times (stats->totalTicks: 1080)
-*** thread with running time 5 looped 33 times (stats->totalTicks: 1090)
-
-Timer interrupt with duration: 100 (Determine to Context switch)
-*** thread with running time 7 looped 42 times (stats->totalTicks: 1110)
-*** thread with running time 7 looped 43 times (stats->totalTicks: 1120)
-*** thread with running time 7 looped 44 times (stats->totalTicks: 1130)
-*** thread with running time 7 looped 45 times (stats->totalTicks: 1140)
-*** thread with running time 7 looped 46 times (stats->totalTicks: 1150)
-*** thread with running time 7 looped 47 times (stats->totalTicks: 1160)
-*** thread with running time 7 looped 48 times (stats->totalTicks: 1170)
-*** thread with running time 7 looped 49 times (stats->totalTicks: 1180)
-*** thread with running time 7 looped 50 times (stats->totalTicks: 1190)
-
-Timer interrupt with duration: 100 (Determine to Context switch)
-*** thread with running time 5 looped 34 times (stats->totalTicks: 1210)
-*** thread with running time 5 looped 35 times (stats->totalTicks: 1220)
-*** thread with running time 5 looped 36 times (stats->totalTicks: 1230)
-*** thread with running time 5 looped 37 times (stats->totalTicks: 1240)
-*** thread with running time 5 looped 38 times (stats->totalTicks: 1250)
-*** thread with running time 5 looped 39 times (stats->totalTicks: 1260)
-*** thread with running time 5 looped 40 times (stats->totalTicks: 1270)
-*** thread with running time 5 looped 41 times (stats->totalTicks: 1280)
-*** thread with running time 5 looped 42 times (stats->totalTicks: 1290)
-
-Timer interrupt with duration: 100 (Determine to Context switch)
-*** thread with running time 7 looped 51 times (stats->totalTicks: 1310)
-*** thread with running time 7 looped 52 times (stats->totalTicks: 1320)
-*** thread with running time 7 looped 53 times (stats->totalTicks: 1330)
-*** thread with running time 7 looped 54 times (stats->totalTicks: 1340)
-*** thread with running time 7 looped 55 times (stats->totalTicks: 1350)
-*** thread with running time 7 looped 56 times (stats->totalTicks: 1360)
-*** thread with running time 7 looped 57 times (stats->totalTicks: 1370)
-*** thread with running time 7 looped 58 times (stats->totalTicks: 1380)
-*** thread with running time 7 looped 59 times (stats->totalTicks: 1390)
-
-Timer interrupt with duration: 100 (Determine to Context switch)
-*** thread with running time 5 looped 43 times (stats->totalTicks: 1410)
-*** thread with running time 5 looped 44 times (stats->totalTicks: 1420)
-*** thread with running time 5 looped 45 times (stats->totalTicks: 1430)
-*** thread with running time 5 looped 46 times (stats->totalTicks: 1440)
-*** thread with running time 5 looped 47 times (stats->totalTicks: 1450)
-*** thread with running time 5 looped 48 times (stats->totalTicks: 1460)
-*** thread with running time 5 looped 49 times (stats->totalTicks: 1470)
-*** thread with running time 5 looped 50 times (stats->totalTicks: 1480)
-
-Timer interrupt with duration: 100 (Determine to Context switch)
-*** thread with running time 7 looped 60 times (stats->totalTicks: 1510)
-*** thread with running time 7 looped 61 times (stats->totalTicks: 1520)
-*** thread with running time 7 looped 62 times (stats->totalTicks: 1530)
-*** thread with running time 7 looped 63 times (stats->totalTicks: 1540)
-*** thread with running time 7 looped 64 times (stats->totalTicks: 1550)
-*** thread with running time 7 looped 65 times (stats->totalTicks: 1560)
-*** thread with running time 7 looped 66 times (stats->totalTicks: 1570)
-*** thread with running time 7 looped 67 times (stats->totalTicks: 1580)
-*** thread with running time 7 looped 68 times (stats->totalTicks: 1590)
-
-Timer interrupt with duration: 100 (Determine to Context switch)
-*** thread with running time 7 looped 69 times (stats->totalTicks: 1610)
-*** thread with running time 7 looped 70 times (stats->totalTicks: 1620)
-```
-
-> weird thing is `stats-totalTicks` ticks from 390 to 420...
-
-## Notes
-
-### C++ Constructor Overloading
-
-Constructor can be overloaded in a similar way as [function overloading](https://www.programiz.com/cpp-programming/function-overloading).
-
-Overloaded constructors have the same name (name of the class) but different number of arguments.
-
-Depending upon the number and type of arguments passed, specific constructor is called.
-
-Since, there are multiple constructors present, argument to the constructor should also be passed while creating an object.
-
-* [GeeksforGeeks - Constructor Overloading in C++](https://www.geeksforgeeks.org/constructor-overloading-c/)
-
-### C++ 11
-
-Compile
-
-* [Stackoverflow - Compiling C++11 with g++](https://stackoverflow.com/questions/10363646/compiling-c11-with-g)
-
-```sh
-g++ -std=c++11 your_file.cpp -o your_program
-```
-
-or
-
-```sh
-g++ -std=c++0x your_file.cpp -o your_program
-```
-
-> the compiled binary can't work when add C++ 11 flag in `Makefile.common` after `CFLAGS =`.
-
-### Passing a Function in C++
-
-> I was ment to put `RRHandler()` in `class Scheduler` and `lastSwitchTick` as private member.
-> But in C++. passing a non-static object member isn't as simple as passing a [normal funcion pointer](#Funciton-Pointer-In-Nachos).
-
-* [**Stackoverflow - How can I pass a member function where a free function is expected?**](https://stackoverflow.com/questions/12662891/how-can-i-pass-a-member-function-where-a-free-function-is-expected)
-
-#### Funciton Pointer In Nachos
-
-`utility.h`
+在`Thread.h`中，对Fork函数的定义如下：
 
 ```cpp
-// This declares the type "VoidFunctionPtr" to be a "pointer to a
-// function taking an integer argument and returning nothing".  With
-// such a function pointer (say it is "func"), we can call it like this:
-//
-//	(*func) (17);
-//
-// This is used by Thread::Fork and for interrupt handlers, as well
-// as a couple of other places.
-
-typedef void (*VoidFunctionPtr)(int arg);
-typedef void (*VoidNoArgFunctionPtr)();
+void Fork(VoidFunctionPtr func, void *arg);  
 ```
 
-## Resources
+而`VoidFunctionPtr`的定义如下：
 
-### Book
+```cpp
+typedef void (*VoidFunctionPtr)(int arg); 
+```
 
-* Data Structures and Algorithm Analysis in C++ 4ed.
-  * Ch1.4 C++ Classes
-    * Ch1.4.1 Basic class Syntax
-    * Ch1.4.2 Extra Constructor Syntax and Accessors
-* Nachos 中文教程 Ch3 線程管理系統 第五節 實現實例 4.2 對線程調度的改進
+NachOS的运行环境是32位，也就是说`void *`可以被强制转换为`int`。我们可以通过强制类型转换的方式，把一个指针传给被Fork的线程。以下给出一个示例程序：
 
-### Example
+```cpp
+void thu(int ptr_int){
+  class_* ptr_to_pass = (class_*) ptr_int
+}
+...
+t->Fork(thu, (void*)ptr_to_pass)
+```
 
-* [CSDN - 線程調度實驗報告_Nachos Lab2](https://blog.csdn.net/superli90/article/details/29373593)
-* [CSDN - nachos lab2-線程調度](https://blog.csdn.net/wyxpku/article/details/52076206)
-* [NTUST OS_HOMEWORK_2](http://neuron.csie.ntust.edu.tw/homework/99/OS/homework/homework2/B9715046-hw2-1/)
+**2. 线程的回收问题 **
 
-### Article
+在进行测试时，我意外地发现在不少情况下运行结束的线程并不会被回收，而是会进入BLOCKED状态。
 
-* [**Shichao's Notes Chapter 4. Process Scheduling - Linux's Process Scheduler**](https://notes.shichao.io/lkd/ch4/#linuxs-process-scheduler)
-* [Linux Kernel: Process Scheduling](https://medium.com/hungys-blog/linux-kernel-process-scheduling-8ce05939fabd)
+关于这一点，某位热心的同学给出了答案：
 
-### Video
+> 若一个线程刚刚被创建（例如Fork())，其栈顶元素是ThreadRoot的入口；这将导致SWITCH无法返回Run函数，导致已经完成的线程无法回收。
 
-* [Youtube - Operating System #22 Completely Fair Scheduling (CFS)](https://youtu.be/scfDOof9pww)
+#### 对课程或Lab的意见和建议
+
+1. 希望实验说明更够更为详细，您们可以适当参考UC Berkeley的NachOS Lab Handout。篇幅不一定像UC的十多页那么长，只要能具体而非笼统地说明您们希望我们完成的任务即可。
+
+2. 希望助教能够提供一些实现的思路和实现中可能遇到的问题，帮助学生思考。在Lab中可能会需要用到一些实用的小Trick，例如强制类型转换，自己想可能会想不到。
+
+#### 参考文献
+
+[Linux Kernel 2.6.38 Source](https://elixir.bootlin.com/linux/v2.6.38/source/include/linux/sched.h)
+
+[Linux Kernel 2.4.30 Source](https://elixir.bootlin.com/linux/2.4.30/source/include/linux/sched.h)
+
+[谈谈调度 - Linux O(1)](https://zhuanlan.zhihu.com/p/33461281)
