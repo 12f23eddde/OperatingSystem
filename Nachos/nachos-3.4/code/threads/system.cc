@@ -35,6 +35,9 @@ SynchDisk   *synchDisk;
 
 #ifdef USER_PROGRAM	// requires either FILESYS or FILESYS_STUB
 Machine *machine;	// user program memory and registers
+// [lab6] Yield
+int exitStatus[MAX_THREADS];
+Lock *lockList[MAX_THREADS];
 #endif
 
 #ifdef NETWORK
@@ -167,6 +170,11 @@ Initialize(int argc, char **argv)
     
 #ifdef USER_PROGRAM
     machine = new Machine(debugUserProg);	// this must come first
+    // [lab6] Yield
+    exitStatus[MAX_THREADS] = {0};
+    for(int i = 0; i < MAX_THREADS; i++){
+        lockList[i] = new Lock("execLock");
+    }
 #endif
 
 #ifdef FILESYS

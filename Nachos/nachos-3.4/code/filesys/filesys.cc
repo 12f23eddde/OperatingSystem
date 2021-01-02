@@ -130,9 +130,11 @@ FileSystem::FileSystem(bool format) {
         }
 
         // [lab5] pipe
+#ifdef USE_PIPE
         FileHeader *pipeHdr = new FileHeader;
         freeMap->Mark(PipeSector);
         pipeHdr->WriteBack(PipeSector);
+#endif
     } else {
         // if we are not formatting the disk, just open the files representing
         // the bitmap and directory; these are left open while Nachos is running
@@ -416,7 +418,7 @@ bool FileSystem::ChangeDir(char *name) {
     return TRUE;
 }
 
-
+#ifdef USE_PIPE
 // [lab5] pipe
 int FileSystem::ReadPipe(char *into, int numBytes) {
     OpenFile* pipeFile = new OpenFile(PipeSector);
@@ -431,6 +433,7 @@ int FileSystem::WritePipe(char *into, int numBytes) {
     delete pipeFile;
     return res;
 }
+#endif
 
 #ifdef USE_HDRTABLE
 HeaderTableEntry::HeaderTableEntry() {

@@ -57,10 +57,11 @@ StartProcess(char *filename)
     Thread *t [10];
 
     for(int i = 1; i <= numInstances; i++){
-        char* name = new char[10];
+        char* name = new char[2];
         name[0] = (char)(i + '0');
-        strcat(name, "-userProg");
-        t[i-1] = new Thread(name, i);
+        name[1] = '\0';
+        strcat(filename, name);
+        t[i-1] = new Thread(filename, i);
         t[i-1]->space = new AddrSpace(executable, i);
         machine->printMem(machine->mainMemory);
         t[i-1]->Fork(RunSingleProcess, (void*)i);

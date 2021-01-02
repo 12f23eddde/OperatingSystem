@@ -259,6 +259,7 @@ void DeleteTest(){
     currentThread->Yield();
 }
 
+#ifdef USE_PIPE
 void readPipe(int numBytes){
     printf("starting %s\n",currentThread->getName());
     char* buffer = new char[numBytes];
@@ -281,4 +282,9 @@ void PipeTest(){
     r1->Fork(readPipe, (void*) 19);
     currentThread->Yield();
 }
+#else
+void PipeTest(){
+  // nop
+}
+#endif
 

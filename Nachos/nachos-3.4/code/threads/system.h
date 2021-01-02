@@ -38,6 +38,9 @@ void printThreadsList();
 #ifdef USER_PROGRAM
 #include "machine.h"
 extern Machine* machine;	// user program memory and registers
+// [lab6] Join
+extern int exitStatus[MAX_THREADS];
+extern Lock *lockList[MAX_THREADS];
 #endif
 
 #ifdef FILESYS_NEEDED 		// FILESYS or FILESYS_STUB

@@ -96,4 +96,5 @@ add_executable(code
         userprog/bitmap.h
         userprog/exception.cc
         userprog/progtest.cc
-        userprog/syscall.h)
+        userprog/syscall.h
+        test/syscall_test.c)

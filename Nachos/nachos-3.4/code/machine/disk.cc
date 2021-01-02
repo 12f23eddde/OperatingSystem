@@ -126,7 +126,7 @@ Disk::ReadRequest(int sectorNumber, char* data)
 	PrintSector(FALSE, sectorNumber, data);
     
     active = TRUE;
-    UpdateLast(sectorNumber);
+    UpdateLast(sectorNumber);  // [lab6]
     stats->numDiskReads++;
     interrupt->Schedule(DiskDone, (int) this, ticks, DiskInt);
 }
@@ -146,7 +146,7 @@ Disk::WriteRequest(int sectorNumber, char* data)
 	PrintSector(TRUE, sectorNumber, data);
     
     active = TRUE;
-    UpdateLast(sectorNumber);
+    UpdateLast(sectorNumber);  // [lab6]
     stats->numDiskWrites++;
     interrupt->Schedule(DiskDone, (int) this, ticks, DiskInt);
 }

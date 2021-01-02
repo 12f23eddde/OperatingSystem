@@ -106,8 +106,10 @@ public:
 
     bool ChangeDir(char *name);  // [lab5] Only supports relative path
 
+#ifdef USE_PIPE
     int ReadPipe(char *into, int numBytes); // [lab5] read pipe
     int WritePipe(char *into, int numBytes); // [lab5] write pipe
+#endif
 
 private:
     OpenFile *freeMapFile;        // Bit map of free disk blocks,

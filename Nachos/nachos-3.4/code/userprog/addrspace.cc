@@ -20,7 +20,7 @@
 // #define USE_VM
 // #define FILESYS_NEEDED
 // #define USER_PROGRAM
-// #define MULTITHREAD_SUPPORT
+ #define MULTITHREAD_SUPPORT
 // # define REV_PAGETABLE
 
 #include "copyright.h"
